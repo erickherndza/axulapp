@@ -26,6 +26,7 @@ from core.helpers import *
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -36,7 +37,7 @@ notificaciones_bp = Blueprint("notificaciones_bp", __name__)
 def listar_notificaciones():
     u = get_usuario()
     solo_no_leidas = request.args.get("no_leidas", "0") == "1"
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         q = """
             SELECT n.*, e.nombre as est_nombre, e.apellido as est_apellido,
@@ -57,7 +58,7 @@ def listar_notificaciones():
 @login_required
 def contar_notificaciones():
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         n = conn.execute(
             "SELECT COUNT(*) FROM notificaciones WHERE destinatario_id=? AND leida=0",
             (u["id"],)
@@ -69,7 +70,7 @@ def contar_notificaciones():
 @login_required
 def marcar_leida(nid):
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(
             "UPDATE notificaciones SET leida=1 WHERE id=? AND destinatario_id=?",
             (nid, u["id"])
@@ -82,7 +83,7 @@ def marcar_leida(nid):
 @login_required
 def marcar_todas_leidas():
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(
             "UPDATE notificaciones SET leida=1 WHERE destinatario_id=?",
             (u["id"],)
@@ -96,7 +97,7 @@ def marcar_todas_leidas():
 def conteo_notificaciones():
     """Endpoint ligero — solo devuelve el conteo de no leídas. Usado por polling."""
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=5) as conn:
+    with db_compat.connect(DATABASE, timeout=5) as conn:
         n = conn.execute(
             "SELECT COUNT(*) FROM notificaciones WHERE destinatario_id=? AND leida=0",
             (u["id"],)
@@ -120,7 +121,7 @@ def notificaciones_sse():
     def generate():
         while True:
             try:
-                with sqlite3.connect(DATABASE, timeout=5) as conn:
+                with db_compat.connect(DATABASE, timeout=5) as conn:
                     n = conn.execute(
                         "SELECT COUNT(*) FROM notificaciones WHERE destinatario_id=? AND leida=0",
                         (uid,)
@@ -153,7 +154,7 @@ def get_notificaciones():
         sql += " AND leida=0"
     sql += " ORDER BY creado DESC LIMIT ?"
     params.append(limit)
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(sql, params).fetchall()
         total_no_leidas = conn.execute(

@@ -16,6 +16,7 @@ import sqlite3
 import json
 import logging
 from datetime import datetime
+from . import db_compat
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ NIVEL_AMARILLO = 50   # por debajo → ROJO
 
 
 def _get_db(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path, timeout=20)
+    conn = db_compat.connect(db_path, timeout=20)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn

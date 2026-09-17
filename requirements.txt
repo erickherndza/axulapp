@@ -16,6 +16,12 @@ click==8.3.1
 python-dotenv==1.2.2
 MarkupSafe==3.0.3
 
+# Base de datos — MySQL en Banahosting (driver pure-Python, sin compilación
+# de C, igual criterio que dipromesapp). Solo se usa si DATABASE_URL apunta
+# a mysql:// — ver core/db_compat.py. En Render/local sin DATABASE_URL sigue
+# usando sqlite3 (stdlib, no listado aquí).
+PyMySQL==1.1.1
+
 # PDF
 reportlab>=4.4.0
 

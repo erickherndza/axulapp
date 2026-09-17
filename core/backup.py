@@ -2,17 +2,24 @@
 """
 Sistema de respaldos automáticos para Axula.
 
-Respaldo diario de la base de datos SQLite usando el mecanismo
-nativo de SQLite (backup API) que es seguro incluso con WAL mode.
+Respaldo diario de la base de datos. Bajo SQLite (Render/local) usa el
+mecanismo nativo de SQLite (backup API), seguro incluso con WAL mode. Bajo
+MySQL (Banahosting, ver core/db_compat.py) usa `mysqldump` vía subprocess —
+son mecanismos distintos porque no existe equivalente al backup API de
+SQLite contra un motor cliente-servidor.
 El respaldo se dispara automáticamente en el primer request del día.
 """
 
 import os
 import sqlite3
+import subprocess
 import logging
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
+
+from . import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -40,14 +47,15 @@ def _hoy() -> str:
 
 
 def _nombre_archivo(fecha: str) -> str:
-    return f"db_backup_{fecha}.db"
+    ext = "sql" if db_compat.ENGINE == "mysql" else "db"
+    return f"db_backup_{fecha}.{ext}"
 
 
 def _limpiar_antiguos(backup_dir: Path) -> None:
     """Elimina respaldos con más de _BACKUP_MAX_DIAS días."""
     corte = datetime.now() - timedelta(days=_BACKUP_MAX_DIAS)
     eliminados = 0
-    for f in backup_dir.glob("db_backup_*.db"):
+    for f in list(backup_dir.glob("db_backup_*.db")) + list(backup_dir.glob("db_backup_*.sql")):
         try:
             # nombre: db_backup_YYYY-MM-DD.db
             fecha_str = f.stem.replace("db_backup_", "")
@@ -59,6 +67,26 @@ def _limpiar_antiguos(backup_dir: Path) -> None:
             continue
     if eliminados:
         logger.info(f"[BACKUP] {eliminados} respaldo(s) antiguo(s) eliminado(s)")
+
+
+def _dump_mysql(destino: Path) -> None:
+    """Respaldo vía mysqldump — Banahosting/cPanel no ofrece un backup API
+    tipo SQLite; mysqldump es el mecanismo estándar para MySQL."""
+    parsed = urlparse(db_compat.DATABASE_URL.replace("mysql+pymysql://", "mysql://", 1))
+    cmd = [
+        "mysqldump",
+        f"--host={parsed.hostname or 'localhost'}",
+        f"--port={parsed.port or 3306}",
+        f"--user={parsed.username}",
+        "--single-transaction",
+        "--routines",
+        parsed.path.lstrip("/"),
+    ]
+    env = os.environ.copy()
+    if parsed.password:
+        env["MYSQL_PWD"] = parsed.password  # evita exponer el password en `ps`
+    with open(destino, "wb") as f:
+        subprocess.run(cmd, stdout=f, env=env, check=True, timeout=120)
 
 
 def hacer_respaldo(forzar: bool = False) -> bool:
@@ -86,18 +114,22 @@ def hacer_respaldo(forzar: bool = False) -> bool:
             _ultimo_respaldo = hoy
             return False  # archivo ya existe en disco
 
-        db_path = Path(_DB_PATH)
-        if not db_path.exists():
-            logger.warning("[BACKUP] Base de datos no encontrada, respaldo omitido")
-            return False
+        if db_compat.ENGINE != "mysql":
+            db_path = Path(_DB_PATH)
+            if not db_path.exists():
+                logger.warning("[BACKUP] Base de datos no encontrada, respaldo omitido")
+                return False
 
         try:
-            src  = sqlite3.connect(str(db_path), timeout=10)
-            dest = sqlite3.connect(str(destino))
-            with dest:
-                src.backup(dest, pages=100)   # backup incremental seguro con WAL
-            src.close()
-            dest.close()
+            if db_compat.ENGINE == "mysql":
+                _dump_mysql(destino)
+            else:
+                src  = sqlite3.connect(str(db_path), timeout=10)
+                dest = sqlite3.connect(str(destino))
+                with dest:
+                    src.backup(dest, pages=100)   # backup incremental seguro con WAL
+                src.close()
+                dest.close()
 
             tam = destino.stat().st_size / 1024  # KB
             logger.info(f"[BACKUP] Respaldo creado: {destino.name} ({tam:.1f} KB)")
@@ -126,7 +158,8 @@ def listar_respaldos() -> list[dict]:
         return []
 
     resultado = []
-    for f in sorted(backup_dir.glob("db_backup_*.db"), reverse=True):
+    archivos = list(backup_dir.glob("db_backup_*.db")) + list(backup_dir.glob("db_backup_*.sql"))
+    for f in sorted(archivos, reverse=True):
         try:
             fecha_str = f.stem.replace("db_backup_", "")
             fecha = datetime.strptime(fecha_str, "%Y-%m-%d")

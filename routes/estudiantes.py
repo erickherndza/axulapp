@@ -28,6 +28,7 @@ from core import rls as _rls
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia, generar_con_fallback
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -212,7 +213,7 @@ def cargar():
         # ── UPSERT ───────────────────────────────────────────────────────
         actualizados=0; nuevos=0
 
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             conn.create_function("norm", 1, norm)
 
@@ -307,7 +308,7 @@ def cargar():
 
             conn.commit()
 
-        with sqlite3.connect(DATABASE, timeout=10) as c2:
+        with db_compat.connect(DATABASE, timeout=10) as c2:
             total     = c2.execute("SELECT COUNT(*) FROM estudiantes").fetchone()[0]
             con_notas = c2.execute(
                 "SELECT COUNT(*) FROM estudiantes WHERE p_acad>0 OR acad_p1>0"
@@ -433,7 +434,7 @@ def api_datos():
     import time as _t
     _t0 = _t.time()
     logger.info(f"[api_datos] inicio — query: {query!r} params: {params}")
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(query, params).fetchall()
@@ -512,7 +513,7 @@ def perfil_estudiante(id):
     # Si es padre, verificar que tiene vínculo con este estudiante
     u = get_usuario()
     if u.get("rol") == "padre":
-        with sqlite3.connect(DATABASE, timeout=10) as _vc:
+        with db_compat.connect(DATABASE, timeout=10) as _vc:
             vinculo = _vc.execute(
                 "SELECT id FROM vinculos_padre_estudiante WHERE padre_id=? AND estudiante_id=?",
                 (u["id"], id)
@@ -520,7 +521,7 @@ def perfil_estudiante(id):
         if not vinculo:
             return redirect("/portal-padres")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         estudiante = conn.execute(
             "SELECT * FROM estudiantes WHERE id = ?", (id,)
@@ -534,7 +535,7 @@ def perfil_estudiante(id):
         # los campos directos del perfil (mismo bug que boletin_estudiante ya arregló).
         grado_actual_mc = (e.get('grado') or '').strip().upper()
         anio_actual_mc  = _anio_escolar_actual()
-        with sqlite3.connect(DATABASE, timeout=10) as conn2:
+        with db_compat.connect(DATABASE, timeout=10) as conn2:
             conn2.row_factory = sqlite3.Row
             mats = conn2.execute("""
                 SELECT materia, p1, p2, p3, p4, promedio, fecha_carga, profesor
@@ -798,7 +799,7 @@ def perfil_estudiante(id):
         e['tiene_notas'] = bool(e.get('p_acad', 0) > 0 or e.get('acad_p1', 0) > 0)
 
         # Calcular índices dinámicos desde reportes y cuaderno
-        with sqlite3.connect(DATABASE, timeout=10) as _conn:
+        with db_compat.connect(DATABASE, timeout=10) as _conn:
             _conn.row_factory = sqlite3.Row
             ind_cond  = _calcular_indice_conductual(_conn, id)
             ind_psico = _calcular_bienestar_emocional(_conn, id)
@@ -828,7 +829,7 @@ def perfil_estudiante(id):
         # Detectar si el estudiante fue promovido (notas del año pertenecen a otro grado)
         grado_est = (e.get("grado") or "").upper()
         anio_act  = _anio_escolar_actual()
-        with sqlite3.connect(DATABASE, timeout=10) as _dc:
+        with db_compat.connect(DATABASE, timeout=10) as _dc:
             _dc.row_factory = sqlite3.Row
             _fue_promovido = _dc.execute("""
                 SELECT 1 FROM materias_calificaciones
@@ -847,7 +848,7 @@ def perfil_estudiante(id):
         resultado_motor: dict = {}
         try:
             from core.promocion_engine import evaluar_estudiante as _eval_est
-            with sqlite3.connect(DATABASE, timeout=10) as _mdb:
+            with db_compat.connect(DATABASE, timeout=10) as _mdb:
                 _mdb.row_factory = sqlite3.Row
                 resultado_motor = _eval_est(_mdb, id, anio_act) or {}
         except Exception as _ex:
@@ -871,7 +872,7 @@ def generar_analisis_ia(id):
     _vrol = _normalizar_rol(_viewer.get("rol", ""))
     if _vrol in {"coordinador_general", "coordinador_primer_ciclo", "coordinador_segundo_ciclo"}:
         return jsonify({"error": "Sin permisos para ver análisis psicopedagógico"}), 403
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         e = conn.execute(
             "SELECT * FROM estudiantes WHERE id = ?", (id,)
@@ -897,7 +898,7 @@ def generar_analisis_ia(id):
             max_tokens=600,
         )
 
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.execute(
                 "UPDATE estudiantes SET ia_analisis = ? WHERE id = ?",
                 (analisis, id)
@@ -914,7 +915,7 @@ def generar_analisis_ia(id):
 @estudiantes_bp.route("/api/analisis-ia/<int:id>", methods=["DELETE"])
 @login_required
 def limpiar_analisis_ia(id):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(
             "UPDATE estudiantes SET ia_analisis = NULL WHERE id = ?", (id,)
         )
@@ -938,7 +939,7 @@ def limpiar_analisis_ia(id):
 def evaluar_competencias_ia(id):
     """Genera evaluación por competencias usando datos reales de indicadores."""
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             e = conn.execute("SELECT * FROM estudiantes WHERE id=?", (id,)).fetchone()
 
@@ -1144,7 +1145,7 @@ def cargar_listado():
         resumen = {}
         sin_cedula_lista = []
 
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
 
             for sheet_name in grados_objetivo:
@@ -1278,7 +1279,7 @@ def cargar_listado():
             conn.commit()
 
         # Totales
-        with sqlite3.connect(DATABASE, timeout=10) as conn2:
+        with db_compat.connect(DATABASE, timeout=10) as conn2:
             total_liceo  = conn2.execute("SELECT COUNT(*) FROM registro_liceo").fetchone()[0]
             total_perfiles = conn2.execute("SELECT COUNT(*) FROM estudiantes").fetchone()[0]
             con_notas    = conn2.execute(
@@ -1327,7 +1328,7 @@ def get_registro_liceo():
     query += " ORDER BY grado, mencion, apellido"
 
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(query, params).fetchall()
         return jsonify([dict(r) for r in rows])
@@ -1363,7 +1364,7 @@ def interpretar_excel():
     raw_bytes = file.read()
 
     # ── Verificar mapeo guardado ──────────────────────────────────
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         mapeo_guardado = conn.execute(
             "SELECT * FROM mapeos_excel WHERE nombre_archivo=?", (nombre_archivo,)
         ).fetchone()
@@ -1721,7 +1722,7 @@ def cargar_materia():
         return _buscar_estudiante_bd(conn, nom1, ape1,
                                      filtro_grado=filtro_grado,
                                      filtro_mencion=filtro_mencion)
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         for reg in registros:
@@ -1872,7 +1873,7 @@ def cargar_materia():
 def get_materias_estudiante(estudiante_id):
     """Devuelve materias cargadas para un estudiante. Deduplica y filtra por asignatura del prof."""
     prof = _get_profesor()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         anio = _anio_escolar_actual()
 
@@ -1910,7 +1911,7 @@ def get_materias_estudiante(estudiante_id):
 def get_materias_disponibles():
     """Lista todas las materias que han sido cargadas al sistema."""
     grado = request.args.get("grado", "")
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT DISTINCT mc.materia, COUNT(DISTINCT mc.estudiante_id) as total_estudiantes,
@@ -1933,7 +1934,7 @@ def get_indicadores_materias(estudiante_id):
     Alimenta la sección "Módulos Técnicos" de /perfil/<id>."""
     from core.helpers import _get_profesor
     from core.auth import _normalizar_rol
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         est_row = conn.execute(
             "SELECT grado, curso FROM estudiantes WHERE id=?", (estudiante_id,)
@@ -1967,7 +1968,7 @@ def get_indicadores_materias(estudiante_id):
 def get_indicadores(estudiante_id):
     """Indicadores de una materia específica por período."""
     materia = request.args.get("materia", "")
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         est_row = conn.execute(
             "SELECT grado FROM estudiantes WHERE id=?", (estudiante_id,)
@@ -2019,7 +2020,7 @@ def eliminar_estudiante(id):
     from core.constants import ROLES_DIRECTORA
     if rol not in ROLES_DIRECTORA:
         return jsonify({"error": "Sin permisos. Solo la directora puede eliminar estudiantes."}), 403
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("DELETE FROM materias_calificaciones WHERE estudiante_id=?", (id,))
         conn.execute("DELETE FROM estudiantes WHERE id=?", (id,))
         conn.commit()
@@ -2041,7 +2042,7 @@ def cambiar_condicion(id):
     condicion = str(data.get("condicion", "ACTIVO")).upper().strip()
     if condicion not in ("ACTIVO", "RETIRADO", "TRANSFERIDO", "GRADUADO"):
         return jsonify({"error": "Condición inválida. Usa ACTIVO, RETIRADO, TRANSFERIDO o GRADUADO"}), 400
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("UPDATE estudiantes SET condicion=? WHERE id=?", (condicion, id))
         conn.commit()
     return jsonify({"ok": True, "condicion": condicion})
@@ -2065,7 +2066,7 @@ def agregar_estudiante():
     if not cedula:
         cedula = f"MANUAL_{nombre[:4].upper()}_{apellido[:4].upper()}"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         existing = conn.execute(
             "SELECT id FROM estudiantes WHERE cedula=? OR (lower(nombre)=lower(?) AND lower(apellido)=lower(?))",
             (cedula, nombre, apellido)
@@ -2136,7 +2137,7 @@ def editar_estudiante(id):
 
     # Recalcular promedios derivados si se actualizaron módulos
     campos_recibidos = set(data.keys())
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         # ── Blindaje: si este PATCH cambia el grado, limpiar el caché de KPIs ──
         # Este endpoint es un editor genérico de campos — no sabe de reglas de
         # promoción. Si alguien cambia "grado" a mano aquí (en vez de usar el
@@ -2322,7 +2323,7 @@ def calcular_clusters():
                 scores.append((b - a) / m if m > 0 else 0)
             return float(np.mean(scores))
 
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             rows = _features_para_clustering(conn)
 
@@ -2418,7 +2419,7 @@ def calcular_clusters():
             }
 
         # Guardar en DB
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             for i, (est_id, orig_ci) in enumerate(zip(ids, best_labels.tolist())):
                 meta      = meta_map.get(int(orig_ci), {})
                 dist_min  = float(distances[i][orig_ci])
@@ -2456,7 +2457,7 @@ def calcular_clusters():
 @login_required
 def get_patrones():
     """Devuelve resumen de clusters + estudiantes por cluster."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         clusters = conn.execute("""
             SELECT cluster_id, cluster_label, cluster_color,
@@ -2509,7 +2510,7 @@ def get_patrones():
 @login_required
 def estudiantes_similares(est_id):
     """Devuelve los 5 estudiantes más similares al perfil dado."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         target = conn.execute(
             "SELECT * FROM estudiantes WHERE id=?", (est_id,)
@@ -2585,7 +2586,7 @@ def cargar_registro():
     total_ok = 0
     total_no = []
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         for sheet_name in wb.sheetnames:
@@ -2771,7 +2772,7 @@ def cargar_registro():
 @login_required
 def comparativa_mencion():
     """Devuelve promedios académicos, conductuales y de riesgo agrupados por mención."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT
@@ -2875,7 +2876,7 @@ def subir_foto(id):
         _fh.write(datos)
     # URL autenticada — funciona en Render (/data/fotos) y en local (static/fotos)
     url = f"/api/foto/{id}"
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("UPDATE estudiantes SET foto_path=? WHERE id=?", (url, id))
         conn.commit()
     return jsonify({"ok": True, "url": url})
@@ -2884,7 +2885,7 @@ def subir_foto(id):
 @estudiantes_bp.route("/api/estudiante/<int:id>/foto", methods=["DELETE"])
 @login_required
 def borrar_foto(id):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT foto_path FROM estudiantes WHERE id=?", (id,)).fetchone()
         if row and row["foto_path"]:
@@ -2980,7 +2981,7 @@ def debug_boletin():
 @estudiantes_bp.route("/api/expediente/<int:est_id>", methods=["GET"])
 @login_required
 def get_expediente(est_id):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _recalcular_indicadores(conn, est_id)
         conn.commit()
@@ -3015,7 +3016,7 @@ def get_expediente(est_id):
 @login_required
 def get_logros(est_id):
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT * FROM logros WHERE estudiante_id=? ORDER BY fecha DESC", (est_id,)).fetchall()
         return jsonify([dict(r) for r in rows])
@@ -3036,7 +3037,7 @@ def crear_logro():
     if not est_id or not titulo:
         return jsonify({"error":"estudiante_id y titulo son requeridos"}), 400
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.execute("INSERT INTO logros(estudiante_id,tipo,titulo,descripcion,fecha,registrado_por) VALUES(?,?,?,?,?,?)",
                          (est_id, tipo, titulo, descripcion, fecha, registrado_por))
             conn.commit()
@@ -3052,7 +3053,7 @@ def crear_logro():
 @estudiantes_bp.route("/api/logros/<int:logro_id>", methods=["DELETE"])
 @login_required
 def eliminar_logro(logro_id):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         logro = conn.execute("SELECT estudiante_id FROM logros WHERE id=?", (logro_id,)).fetchone()
         if logro:
@@ -3132,7 +3133,7 @@ def cargar_boletin():
         creados        = 0
         errores        = []
 
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
 
             for est in estudiantes_parsed:
@@ -3277,7 +3278,7 @@ def cargar_boletin():
 def get_cuaderno(est_id):
     u = get_usuario()
     rol_n = _normalizar_rol(u.get("rol", ""))
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         # Verificar acceso al estudiante
         est = conn.execute("SELECT ciclo FROM estudiantes WHERE id=?", (est_id,)).fetchone()
@@ -3353,7 +3354,7 @@ def crear_entrada_cuaderno():
     if not est_id or not descripcion:
         return jsonify({"error": "Faltan campos obligatorios"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         est = conn.execute("SELECT ciclo FROM estudiantes WHERE id=?", (est_id,)).fetchone()
         if not est:
@@ -3376,7 +3377,7 @@ def crear_entrada_cuaderno():
 def editar_entrada_cuaderno(entrada_id):
     u = get_usuario()
     data = request.get_json() or {}
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         entrada = conn.execute(
             "SELECT * FROM cuaderno_anecdotico WHERE id=?", (entrada_id,)
@@ -3458,7 +3459,7 @@ def convertir_reporte_cuaderno(entrada_id):
         "otro":       "conducta",
     }
 
-    with sqlite3.connect(DATABASE, timeout=15) as conn:
+    with db_compat.connect(DATABASE, timeout=15) as conn:
         conn.row_factory = sqlite3.Row
         entrada = conn.execute(
             "SELECT * FROM cuaderno_anecdotico WHERE id=?", (entrada_id,)
@@ -3586,7 +3587,7 @@ def convertir_reporte_cuaderno(entrada_id):
 @login_required
 def eliminar_entrada_cuaderno(entrada_id):
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         entrada = conn.execute(
             "SELECT autor_id FROM cuaderno_anecdotico WHERE id=?", (entrada_id,)
@@ -3620,7 +3621,7 @@ def bandeja_cuaderno():
 
     ciclo = u.get("ciclo_acceso")   # None = directora ve todo
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         if ciclo:
             rows = conn.execute("""
@@ -3674,7 +3675,7 @@ def get_progreso_estudiante(est_id):
     u = get_usuario()
     anio_esc = request.args.get("anio_escolar", "2025-2026")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # Datos básicos del estudiante

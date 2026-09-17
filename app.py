@@ -347,10 +347,10 @@ def error_excepcion(e):
 @app.route("/health")
 def health():
     """Health check que verifica conectividad real a la BD y estado del backup."""
-    import sqlite3 as _sqlite3
+    from core import db_compat as _db_compat
     from core.backup import estado_backup as _estado_backup
     try:
-        with _sqlite3.connect(DATABASE, timeout=3) as _c:
+        with _db_compat.connect(DATABASE, timeout=3) as _c:
             _c.execute("SELECT 1").fetchone()
     except Exception as _e:
         logger.error(f"[HEALTH] BD no responde: {_e}")

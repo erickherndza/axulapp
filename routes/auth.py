@@ -28,6 +28,7 @@ from core.helpers import _delete_recovery_token, _get_recovery_token, _guardar_r
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -302,7 +303,7 @@ def recovery_request():
 
     _MSG_GENERICO = "Si el correo está registrado, recibirás un enlace en breve."
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         u = conn.execute(
             """SELECT id, nombre, username, email FROM usuarios
@@ -359,7 +360,7 @@ def admin_get_reset_link(uid):
         logger.warning(f"[SECURITY] recovery/link denegado — rol={rol_solicitante} uid={u.get('id')} intentó reset uid={uid}")
         return jsonify({"error": "Sin permisos"}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         target = conn.execute("SELECT id, nombre, username FROM usuarios WHERE id=? AND activo=1", (uid,)).fetchone()
     if not target:
@@ -396,7 +397,7 @@ def recovery_reset():
     if not data:
         return jsonify({"error": "El enlace expiró. Solicita uno nuevo."}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("UPDATE usuarios SET password=? WHERE id=?",
                      (_hash(password), data["user_id"]))
         conn.commit()
@@ -427,7 +428,7 @@ def login_post():
 
     username = request.form.get("username","").strip()
     password = request.form.get("password","").strip()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         u = conn.execute(
             "SELECT * FROM usuarios WHERE (username=? OR lower(email)=lower(?)) AND activo=1", (username, username)
@@ -480,7 +481,7 @@ def cambiar_password_propio():
     if len(pwd_nueva) < 8:
         return jsonify({"error": "La nueva contraseña debe tener al menos 8 caracteres"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT password FROM usuarios WHERE id=?", (u["id"],)).fetchone()
         if not row or not _check_password(row["password"], pwd_actual):

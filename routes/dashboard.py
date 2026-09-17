@@ -26,6 +26,7 @@ from core.helpers import *
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -88,7 +89,7 @@ def coordinador_resumen():
     ciclo = _ciclo_del_rol(rol_n)
     filtro_ciclo = ciclo if ciclo else None
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         base_q = "WHERE (condicion IS NULL OR condicion NOT IN ('RETIRADO','TRANSFERIDO'))"
@@ -186,7 +187,7 @@ def metricas_avanzadas():
     ciclo = _ciclo_del_rol(rol_n)
     filtro_ciclo = ciclo if ciclo else None
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         base_q = "WHERE condicion='ACTIVO'"
@@ -308,7 +309,7 @@ def kpis_ejecutivos():
     if rol not in ROLES_SUPER | ROLES_DIRECTORA | ROLES_COORD:
         return jsonify({"error": "Sin permisos"}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # ── Totales generales ────────────────────────────────────────────────

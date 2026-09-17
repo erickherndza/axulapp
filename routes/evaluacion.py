@@ -31,6 +31,7 @@ from core.evaluacion_engine import (
     get_estado_estudiante_periodo, cerrar_periodo,
     TOTAL_PUNTOS_PERIODO,
 )
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -125,7 +126,7 @@ def listar_actividades():
     grado = request.args.get("grado", "")
     anio = request.args.get("anio", _anio_escolar_actual())
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         sql = """
             SELECT * FROM actividades_evaluacion
@@ -179,7 +180,7 @@ def crear_actividad():
 
     anio = _anio_escolar_actual()
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         anio_id = _get_anio_escolar_id(conn, anio)
         conn.execute("""
@@ -207,7 +208,7 @@ def eliminar_actividad(act_id):
     if not prof:
         return jsonify({"error": "No autorizado"}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(
             "DELETE FROM notas_actividad WHERE actividad_id=?", (act_id,))
         conn.execute(
@@ -228,7 +229,7 @@ def ver_notas_actividad(act_id):
     if not prof:
         return jsonify({"error": "No autorizado"}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # Get activity info
@@ -288,7 +289,7 @@ def guardar_notas_actividad(act_id):
         return jsonify({"error": "No hay notas para guardar"}), 400
 
     guardadas = 0
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         for est_id_str, nota in notas.items():
             est_id = int(est_id_str)
             try:
@@ -335,7 +336,7 @@ def resumen_competencias():
     if not all([materia, grado, periodo]):
         return jsonify({"error": "Materia, grado y período requeridos"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # Get all activities for this materia/periodo
@@ -634,7 +635,7 @@ def panel_asignaciones():
     mencion  = request.args.get("mencion", prof.get("mencion", ""))
     periodo  = request.args.get("periodo", _periodo_actual(), type=int)
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         ae_row = conn.execute(
             "SELECT id FROM anios_escolares WHERE activo=1 LIMIT 1"
@@ -687,7 +688,7 @@ def periodo_status():
     except (ValueError, AttributeError):
         return jsonify({"error": "Período inválido"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         actividades = conn.execute("""
@@ -767,7 +768,7 @@ def crear_actividad_v2():
     except (TypeError, ValueError):
         return jsonify({"error": "valor_puntos y periodo deben ser enteros válidos"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         validacion = validar_puntos_actividad(
@@ -816,7 +817,7 @@ def calificar_actividad_get(actividad_id):
     if not prof:
         return redirect("/")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         act = conn.execute(
@@ -872,7 +873,7 @@ def calificar_actividad_post(actividad_id):
     if not isinstance(items, list):
         return jsonify({"error": "Se esperaba un array JSON"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         act = conn.execute(
@@ -932,7 +933,7 @@ def resumen_periodo_v2(periodo):
     if not materia:
         return "Parámetro 'materia' requerido", 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         actividades = conn.execute("""
@@ -1026,7 +1027,7 @@ def cerrar_periodo_route(periodo):
     if not materia:
         return jsonify({"error": "Campo 'materia' requerido"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         resultado = cerrar_periodo(conn, materia, prof["id"], periodo, anio_esc_id,
                                    forzar=forzar)
@@ -1049,7 +1050,7 @@ def listar_competencias_materia(materia):
     import urllib.parse
     materia = urllib.parse.unquote(materia)
     anio = _anio_escolar_actual()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         ces = conn.execute(
             "SELECT numero, descripcion, periodo_eval, activa "
@@ -1079,7 +1080,7 @@ def configurar_competencias():
 
     from core.helpers import sembrar_competencias_materia
     anio = _anio_escolar_actual()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         # Desactivar las anteriores si se reemplaza
         conn.execute(
@@ -1122,7 +1123,7 @@ def guardar_nota_ce():
     errores    = []
     resultados = []
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         for item in registros:
             est_id    = item.get("estudiante_id")
@@ -1164,7 +1165,7 @@ def notas_ce_estudiante(est_id, materia):
     import urllib.parse
     materia = urllib.parse.unquote(materia)
     anio = _anio_escolar_actual()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         notas = conn.execute(
             "SELECT nc.ce_numero, nc.nota, nc.periodo, cm.descripcion "
@@ -1200,7 +1201,7 @@ def registro_ce_materia(materia):
     if not prof:
         return jsonify({"error": "No autenticado"}), 401
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # CEs de la materia

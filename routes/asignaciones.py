@@ -28,6 +28,7 @@ from core import grades as G
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -101,7 +102,7 @@ def asignaciones_listar():
     if estado:  q += " AND estado=?";   params.append(estado)
     q += " ORDER BY creado_en DESC"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = [dict(r) for r in conn.execute(q, params).fetchall()]
 
@@ -151,7 +152,7 @@ def asignaciones_crear():
 
     criterios_json = _json.dumps(criterios, ensure_ascii=False)
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         cur = conn.execute(
             """INSERT INTO asignaciones
                (profesor_id, materia, grado, mencion, tipo, titulo, descripcion,
@@ -175,7 +176,7 @@ def asignaciones_actualizar(asig_id):
     data = request.get_json(force=True) or {}
 
     import json as _json
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         row = conn.execute(
             "SELECT * FROM asignaciones WHERE id=? AND profesor_id=?",
             (asig_id, u["id"])
@@ -206,7 +207,7 @@ def asignaciones_actualizar(asig_id):
 def asignaciones_eliminar(asig_id):
     """Elimina una asignación (solo si está en borrador o la crea el mismo profesor)."""
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         row = conn.execute(
             "SELECT estado FROM asignaciones WHERE id=? AND profesor_id=?",
             (asig_id, u["id"])
@@ -233,7 +234,7 @@ def asignaciones_calificar(asig_id):
     if not entregas:
         return jsonify({"ok": False, "error": "Sin entregas"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         asig = conn.execute(
             "SELECT * FROM asignaciones WHERE id=? AND profesor_id=?",
             (asig_id, u["id"])
@@ -288,7 +289,7 @@ def asignaciones_calificar(asig_id):
 def asignaciones_notas(asig_id):
     """Devuelve las notas de todos los estudiantes para una asignación."""
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         asig = conn.execute(
             "SELECT * FROM asignaciones WHERE id=? AND profesor_id=?",
@@ -329,7 +330,7 @@ def asignaciones_reporte(asig_id):
     y lista completa de estudiantes con su nota (incluyendo pendientes).
     """
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         asig = conn.execute(
             "SELECT * FROM asignaciones WHERE id=? AND profesor_id=?",
@@ -452,7 +453,7 @@ def asignaciones_por_estudiante(est_id):
     periodo = request.args.get("periodo", "").strip()
     tipo    = request.args.get("tipo", "").strip()
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         est = conn.execute(
             "SELECT id, grado, curso FROM estudiantes WHERE id=?", (est_id,)
@@ -531,7 +532,7 @@ def asignaciones_por_estudiante(est_id):
 def asignaciones_exportar_csv(asig_id):
     """Exporta las notas de una asignación como archivo CSV descargable."""
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         asig = conn.execute(
             "SELECT * FROM asignaciones WHERE id=? AND profesor_id=?",

@@ -9,6 +9,7 @@ from core.constants import *
 from core.database import get_db, cache_get, cache_set, cache_bust
 from core.auth import _normalizar_rol, login_required, get_usuario
 from core.helpers import _features_para_clustering
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -21,7 +22,7 @@ estadisticas_bp = Blueprint("estadisticas_bp", __name__)
 @login_required
 def get_indicadores_materias(estudiante_id):
     """Lista de materias disponibles para el estudiante con promedio."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT materia,
@@ -40,7 +41,7 @@ def get_indicadores_materias(estudiante_id):
 def get_indicadores(estudiante_id):
     """Indicadores de una materia específica por período."""
     materia = request.args.get("materia", "")
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("""
             SELECT materia, p1, p2, p3, p4, promedio, fecha_carga
@@ -138,7 +139,7 @@ def calcular_clusters():
                 scores.append((b - a) / m if m > 0 else 0)
             return float(np.mean(scores))
 
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             rows = _features_para_clustering(conn)
 
@@ -229,7 +230,7 @@ def calcular_clusters():
                 "avg_riesgo":  round(avg_riesgo, 1),
             }
 
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             for i, (est_id, orig_ci) in enumerate(zip(ids, best_labels.tolist())):
                 meta      = meta_map.get(int(orig_ci), {})
                 dist_min  = float(distances[i][orig_ci])
@@ -267,7 +268,7 @@ def calcular_clusters():
 @login_required
 def get_patrones():
     """Devuelve resumen de clusters + estudiantes por cluster."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         clusters = conn.execute("""
             SELECT cluster_id, cluster_label, cluster_color,
@@ -319,7 +320,7 @@ def get_patrones():
 @login_required
 def estudiantes_similares(est_id):
     """Devuelve los 5 estudiantes más similares al perfil dado."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         target = conn.execute(
             "SELECT * FROM estudiantes WHERE id=?", (est_id,)
@@ -354,7 +355,7 @@ def vista_patrones():
 @login_required
 def comparativa_mencion():
     """Devuelve promedios académicos, conductuales y de riesgo agrupados por mención."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT

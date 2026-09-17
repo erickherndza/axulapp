@@ -15,6 +15,7 @@ from flask import session, request, render_template
 
 from .constants import DATABASE, DOMINIOS_INSTITUCIONALES, ROLES_COORD, DEFAULTS_CENTRO
 from .auth import get_usuario, _normalizar_rol
+from . import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -283,7 +284,7 @@ def _validar_email_institucional(email):
 
 
 def _guardar_recovery_token(token, user_id, expires):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("""
             INSERT OR REPLACE INTO recovery_tokens (token, user_id, expires)
             VALUES (?, ?, ?)
@@ -292,7 +293,7 @@ def _guardar_recovery_token(token, user_id, expires):
 
 
 def _get_recovery_token(token):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM recovery_tokens WHERE token=?", (token,)
@@ -307,7 +308,7 @@ def _get_recovery_token(token):
 
 
 def _delete_recovery_token(token):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("DELETE FROM recovery_tokens WHERE token=?", (token,))
         conn.commit()
 
@@ -325,7 +326,7 @@ def _audit(accion, descripcion, entidad=None, entidad_id=None,
         uid    = u.get("id") if u else None
         nombre = u.get("nombre", "sistema") if u else "sistema"
         ip     = request.remote_addr or "—"
-        with sqlite3.connect(DATABASE, timeout=5) as conn:
+        with db_compat.connect(DATABASE, timeout=5) as conn:
             conn.execute(
                 """INSERT INTO audit_log
                    (usuario_id, usuario_nombre, accion, entidad, entidad_id,
@@ -417,7 +418,7 @@ def _notificar(tipo, titulo, mensaje, url=None, destinatarios=None):
     No bloquea si falla.
     """
     try:
-        with sqlite3.connect(DATABASE, timeout=5) as conn:
+        with db_compat.connect(DATABASE, timeout=5) as conn:
             if destinatarios is None:
                 rows = conn.execute(
                     """SELECT id, nombre, email FROM usuarios WHERE activo=1
@@ -899,7 +900,7 @@ def _get_profesor():
     if not uid:
         return None
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             u = conn.execute(
                 "SELECT * FROM usuarios WHERE id=? AND activo=1", (uid,)
@@ -1780,7 +1781,7 @@ def _hook_asistencia_ausente(conn, estudiante_id, fecha, materia):
 
 def _get_hijos(padre_id):
     """Devuelve lista de estudiantes vinculados al padre."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """SELECT e.*, v.parentesco
@@ -1796,7 +1797,7 @@ def _get_hijos(padre_id):
 def _render_perfil_staff(uid, viewer):
     """Renderiza el perfil de cualquier miembro del personal con su timeline."""
     try:
-      with sqlite3.connect(DATABASE, timeout=10) as conn:
+      with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         staff = conn.execute("SELECT * FROM usuarios WHERE id=?", (uid,)).fetchone()
         if not staff:
@@ -2795,7 +2796,7 @@ def _generar_ics(eventos):
 def _get_config_centro():
     """Devuelve la configuración del centro. Nunca falla — usa defaults."""
     try:
-        with sqlite3.connect(DATABASE, timeout=5) as conn:
+        with db_compat.connect(DATABASE, timeout=5) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute("SELECT * FROM configuracion_centro WHERE id=1").fetchone()
             if row:
@@ -2962,7 +2963,7 @@ def _periodo_bloqueado(periodo: str, anio_escolar: str = None) -> bool:
     if not anio_escolar:
         anio_escolar = _anio_escolar_actual()
     try:
-        with sqlite3.connect(DATABASE, timeout=5) as conn:
+        with db_compat.connect(DATABASE, timeout=5) as conn:
             row = conn.execute(
                 "SELECT id FROM periodos_bloqueados WHERE periodo=? AND anio_escolar=?",
                 (periodo, anio_escolar)
@@ -2978,7 +2979,7 @@ def _get_periodos_estado(anio_escolar: str = None) -> dict:
         anio_escolar = _anio_escolar_actual()
     estado = {"P1": False, "P2": False, "P3": False, "P4": False}
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             rows = conn.execute(
                 "SELECT periodo FROM periodos_bloqueados WHERE anio_escolar=?",
                 (anio_escolar,)

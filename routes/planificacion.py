@@ -32,6 +32,7 @@ from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detecta
 from core.pdf import _generar_pdf_acuerdo
 from core.rag import buscar_chunks
 from core.curriculo import get_asignatura as _curriculo_get, formatear_contexto as _curriculo_fmt, COMPETENCIAS_FUNDAMENTALES, FASES_ABP, ELEMENTOS_STEAM
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -233,7 +234,7 @@ def guardar_planificacion():
     tema      = (d.get("tema") or "").strip()
     if not contenido:
         return jsonify({"error": "Sin contenido para guardar"}), 400
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("""
             INSERT INTO historial_planificaciones
                 (profesor_id, materia, grado, tema, nivel_grupo, contenido,
@@ -256,7 +257,7 @@ def guardar_planificacion():
 def historial_planificaciones():
     """Devuelve el historial de planificaciones del usuario."""
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT id, materia, grado, tema, nivel_grupo,
@@ -274,7 +275,7 @@ def historial_planificaciones():
 @login_required
 def get_planificacion(pid):
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM historial_planificaciones WHERE id=? AND profesor_id=?",
@@ -289,7 +290,7 @@ def get_planificacion(pid):
 @login_required
 def eliminar_planificacion(pid):
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(
             "DELETE FROM historial_planificaciones WHERE id=? AND profesor_id=?",
             (pid, u["id"])
@@ -764,7 +765,7 @@ def guardar_planificacion_abp():
     titulo  = (proy.get("titulo") or "").strip()
     plan_texto = _json.dumps(plan, ensure_ascii=False)
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         if pid:
             existente = conn.execute(
@@ -796,7 +797,7 @@ def guardar_planificacion_abp():
 def historial_planificaciones_abp():
     """Lista las planificaciones ABP guardadas por el profesor logueado."""
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT id, materia, grado, mencion, titulo_proyecto, creado_en
@@ -812,7 +813,7 @@ def historial_planificaciones_abp():
 @login_required
 def get_planificacion_abp(pid):
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM historial_planificaciones_abp WHERE id=? AND profesor_id=?",
@@ -832,7 +833,7 @@ def get_planificacion_abp(pid):
 @login_required
 def eliminar_planificacion_abp(pid):
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(
             "DELETE FROM historial_planificaciones_abp WHERE id=? AND profesor_id=?",
             (pid, u["id"])

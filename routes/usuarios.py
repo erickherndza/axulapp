@@ -8,6 +8,7 @@ from flask import Blueprint, render_template, request, jsonify, session
 from core.constants import DATABASE, ROLES_COORD, ROLES_DISPONIBLES
 from core.database import get_db
 from core.auth import _normalizar_rol, _hash, login_required, get_usuario
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -47,7 +48,7 @@ def api_lista():
     err = _requiere_admin()
     if err:
         return err
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT id, username, nombre, rol, materia, grado, mencion,
@@ -86,7 +87,7 @@ def api_editar(uid):
     sets   = ", ".join(f"{k}=?" for k in updates)
     valores = list(updates.values()) + [uid]
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(f"UPDATE usuarios SET {sets} WHERE id=?", valores)
         conn.commit()
 
@@ -103,7 +104,7 @@ def api_reset_password(uid):
     nueva = (d.get("password") or "").strip()
     if len(nueva) < 4:
         return jsonify({"error": "Mínimo 4 caracteres"}), 400
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("UPDATE usuarios SET password=? WHERE id=?",
                      (_hash(nueva), uid))
         conn.commit()
@@ -125,7 +126,7 @@ def api_crear():
     if not username or not nombre or len(password) < 4:
         return jsonify({"error": "username, nombre y contraseña (≥4 car.) son requeridos"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         existe = conn.execute("SELECT id FROM usuarios WHERE username=?",
                               (username,)).fetchone()
         if existe:

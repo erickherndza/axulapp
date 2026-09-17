@@ -28,6 +28,7 @@ from core.ia import _get_groq_client, groq_client, construir_prompt, construir_p
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
 from core import rls as _rls
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -126,7 +127,7 @@ def listar_casos():
     est_id = request.args.get("estudiante_id", "")
     estado = request.args.get("estado", "")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         q = """
             SELECT c.*,
@@ -182,7 +183,7 @@ def crear_caso():
     if not grado:
         return jsonify({"error": "El grado es requerido"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute("""
             INSERT INTO casos (estudiante_id, abierto_por, tipo, titulo, descripcion,
@@ -242,7 +243,7 @@ def crear_conducta():
     if fecha_incidente > date.today().isoformat():
         return jsonify({"error": "La fecha del incidente no puede ser futura"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         est = conn.execute("SELECT id FROM estudiantes WHERE id=?", (est_id,)).fetchone()
         if not est:
@@ -301,7 +302,7 @@ def crear_conducta_lote():
 
     lote_id = _uuid.uuid4().hex[:12]
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # Defensa en profundidad: no confiar en la lista que mandó el navegador
@@ -367,7 +368,7 @@ def crear_conducta_lote():
 @login_required
 def conducta_del_estudiante(est_id):
     """Tally del período actual + historial de conducta de un estudiante."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
 
@@ -412,7 +413,7 @@ def conducta_del_estudiante(est_id):
 @casos_bp.route("/api/casos/<int:cid>")
 @login_required
 def get_caso(cid):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         caso = conn.execute("""
             SELECT c.*, e.nombre as est_nombre, e.apellido as est_apellido,
@@ -463,7 +464,7 @@ def agregar_accion_caso(cid):
         "acuerdo": 2, "resolucion": 1
     }
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         caso = conn.execute("SELECT * FROM casos WHERE id=?", (cid,)).fetchone()
         if not caso:
@@ -588,7 +589,7 @@ def cerrar_caso(cid):
         }
         resolucion_txt += f"\n🔔 Seguimiento: {seg_labels.get(seguimiento, seguimiento)}"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # Verificar que el caso existe
@@ -649,7 +650,7 @@ def generar_acuerdo_compromiso():
     if not est_id:
         return jsonify({"error": "estudiante_id es requerido"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         est = conn.execute("SELECT * FROM estudiantes WHERE id=?", (est_id,)).fetchone()
         if not est:
@@ -742,7 +743,7 @@ Devuelve SOLO el texto del acuerdo, sin comentarios adicionales."""
         return jsonify({"error": "Error al generar el acuerdo. Intenta de nuevo."}), 500
 
     # Guardar en BD
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("""
             INSERT INTO acuerdos_compromiso
                 (caso_id, estudiante_id, generado_por, numero_acuerdo,
@@ -777,7 +778,7 @@ Devuelve SOLO el texto del acuerdo, sin comentarios adicionales."""
 @casos_bp.route("/api/acuerdo-compromiso/<int:acid>")
 @login_required
 def get_acuerdo(acid):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("""
             SELECT ac.*, e.nombre as est_nombre, e.apellido as est_apellido,
@@ -812,7 +813,7 @@ def solicitar_firma(acid):
     import secrets as _sec
     token = _sec.token_urlsafe(32)
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         acuerdo = conn.execute(
             "SELECT id, numero_acuerdo, estudiante_id FROM acuerdos_compromiso WHERE id=?", (acid,)
@@ -869,7 +870,7 @@ def guardar_firma(acid):
         "superusuario":        "coordinador",
     }
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # ── Rama token (padre/tutor sin login) ──
@@ -900,7 +901,7 @@ def guardar_firma(acid):
     if not campo:
         return jsonify({"ok": False, "error": "Rol de firmante inválido"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # Guardar firma
@@ -942,7 +943,7 @@ def acuerdo_pdf_firmado(acid):
     """
     token = request.args.get("token", "").strip()
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         if token:
             ac = conn.execute(
@@ -978,7 +979,7 @@ def acuerdo_pdf_firmado(acid):
 @login_required
 def casos_del_estudiante(est_id):
     """Timeline completo del estudiante: casos + acciones + acuerdos + reportes."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
 
@@ -1027,7 +1028,7 @@ def acuerdo_page(est_id):
     if rol_n not in ROLES_PSICOLOGA and rol_n not in ROLES_COORD and not u.get("es_directora"):
         return redirect(f"/perfil/{est_id}")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         est = conn.execute("SELECT * FROM estudiantes WHERE id=?", (est_id,)).fetchone()
         if not est:

@@ -29,6 +29,7 @@ from core import grades as G
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -74,7 +75,7 @@ def listar_calificaciones():
 
     q += " ORDER BY e.apellido, cp.materia, cp.periodo"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(q, params).fetchall()
         rows = [dict(r) for r in rows]
@@ -142,7 +143,7 @@ def registrar_calificacion():
     guardados = 0
     errores   = []
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         for item in registros:
             est_id  = item.get("estudiante_id")
             materia = (item.get("materia") or "").strip()
@@ -215,7 +216,7 @@ def registrar_calificacion():
 
             # Notificar si la nota está en EP o I (< 70)
             if nota < 70:
-                with sqlite3.connect(DATABASE, timeout=5) as _nc:
+                with db_compat.connect(DATABASE, timeout=5) as _nc:
                     _nc.row_factory = sqlite3.Row
                     _est_n = _nc.execute(
                         "SELECT nombre, apellido FROM estudiantes WHERE id=?", (est_id,)
@@ -259,7 +260,7 @@ def resumen_calificaciones(est_id):
     """
     anio = request.args.get("anio", _anio_escolar_actual())
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)  # RLS — 403 si no tiene permiso
 
@@ -423,7 +424,7 @@ def reporte_grupo_calificaciones():
 
     q += " ORDER BY e.apellido, e.nombre, cp.materia, cp.periodo"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(q, params).fetchall()
 
@@ -483,7 +484,7 @@ def reporte_grupo_calificaciones():
 def get_recuperaciones(est_id):
     """Devuelve todas las recuperaciones del estudiante para el año escolar."""
     anio = request.args.get("anio", _anio_escolar_actual())
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
         rows = conn.execute(
@@ -549,7 +550,7 @@ def guardar_recuperacion():
     if nota_final_ajustada is not None:
         nota_final_ajustada = round(nota_final_ajustada, 1)
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(
             """INSERT INTO recuperaciones_pedagogicas
                (estudiante_id, materia, anio_escolar, nota_recuperacion, nota_completiva,
@@ -586,7 +587,7 @@ def boletin_estudiante(est_id):
     """
     anio = request.args.get("anio", _anio_escolar_actual())
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
         est = conn.execute(
@@ -599,7 +600,7 @@ def boletin_estudiante(est_id):
     grado_actual = (dict(est).get("grado") or "").strip().upper()
 
     # Llamar directamente la lógica
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # Detectar estudiante promovido — 3 capas de detección:
@@ -877,7 +878,7 @@ def historial_notas(est_id):
     Retorna las notas del estudiante agrupadas por año escolar.
     Útil para mostrar el historial completo en el perfil.
     """
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
         historial = construir_historial_notas(conn, est_id)
@@ -903,7 +904,7 @@ def boletin_view(est_id):
     if rol_n not in ROLES_COORD and not u.get("es_directora"):
         return redirect(f"/perfil/{est_id}")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)  # RLS ciclo
         est = conn.execute("SELECT * FROM estudiantes WHERE id=?", (est_id,)).fetchone()
@@ -1451,7 +1452,7 @@ def boletin_pdf(est_id):
     anio = request.args.get("anio", _anio_escolar_actual())
 
     # ── Obtener datos ─────────────────────────────────────────────────────────
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)  # RLS — PDF sensible
         est = conn.execute("SELECT * FROM estudiantes WHERE id=?", (est_id,)).fetchone()

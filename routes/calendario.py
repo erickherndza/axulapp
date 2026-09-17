@@ -27,6 +27,7 @@ from core.helpers import _anio_escolar_actual, _audit, _generar_ics, _get_config
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -47,7 +48,7 @@ def vista_calendario():
 def get_calendario():
     anio = request.args.get("anio_escolar", "2025-2026")
     mes  = request.args.get("mes", "")
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         q = "SELECT * FROM calendario_escolar WHERE anio_escolar=?"
         p = [anio]
@@ -76,7 +77,7 @@ def crear_dia_calendario():
     if not fecha:
         return jsonify({"error": "La fecha es requerida"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         try:
             conn.execute("""
                 INSERT INTO calendario_escolar (fecha, tipo, descripcion, anio_escolar, creado_por)
@@ -100,7 +101,7 @@ def eliminar_dia_calendario(fecha):
     rol_n = _normalizar_rol(u.get("rol",""))
     if rol_n not in {"directora","coordinador_general"}:
         return jsonify({"error": "Sin permisos"}), 403
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("DELETE FROM calendario_escolar WHERE fecha=?", (fecha,))
         conn.commit()
     return jsonify({"ok": True})
@@ -120,7 +121,7 @@ def get_dias_habiles():
 
     # Días no laborables del calendario escolar en ese mes
     mes_str = f"{anio:04d}-{mes:02d}"
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         no_laborables = conn.execute("""
             SELECT fecha FROM calendario_escolar
             WHERE substr(fecha,1,7)=? AND anio_escolar=?
@@ -212,7 +213,7 @@ def save_config_centro():
     if not campos:
         return jsonify({"error": "No se recibieron datos para guardar"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         exists = conn.execute("SELECT id FROM configuracion_centro WHERE id=1").fetchone()
         if exists:
             # UPDATE solo los campos que vinieron en la request
@@ -248,7 +249,7 @@ def exportar_calendario_ics():
     ?anio_escolar=2025-2026
     """
     anio = request.args.get("anio_escolar", _anio_escolar_actual())
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT fecha, tipo, descripcion FROM calendario_escolar "
@@ -416,7 +417,7 @@ def importar_calendario_ics():
     # ── Insertar en BD ────────────────────────────────────────────────────────
     insertados = 0
     actualizados = 0
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         for ev in eventos_filtrados:
             titulo = (ev.get("titulo") or ev.get("descripcion") or "Evento Google Calendar")[:200]
             existing = conn.execute(
@@ -547,7 +548,7 @@ def sincronizar_gcal():
                   and año_i <= int(e["fecha"][:4]) <= año_f]
 
     insertados = actualizados = 0
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         for ev in eventos_ok:
             titulo = (ev.get("titulo") or "Evento")[:200]
             ex_row = conn.execute(

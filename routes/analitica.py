@@ -25,6 +25,7 @@ from core.analytics import (
     recalcular_seccion,
     obtener_semaforo_seccion,
 )
+from core import db_compat
 
 logger = logging.getLogger(__name__)
 bp = Blueprint('analitica', __name__, url_prefix='/analitica')
@@ -155,7 +156,7 @@ def api_tag_entrada():
     tags_json = json.dumps(tags, ensure_ascii=False)
 
     try:
-        with sqlite3.connect(DATABASE, timeout=15) as conn:
+        with db_compat.connect(DATABASE, timeout=15) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("""
                 UPDATE cuaderno_anecdotico
@@ -174,7 +175,7 @@ def api_tags_catalogo():
     if not _verificar_acceso():
         return jsonify({'error': 'no autorizado'}), 403
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.execute("""
                 SELECT tag, polaridad, icono FROM conductor_tags_catalogo
@@ -194,7 +195,7 @@ def api_tags_catalogo():
 def _get_secciones() -> list[dict]:
     """Retorna lista de {grado, seccion} ordenados."""
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.execute("""
                 SELECT DISTINCT grado, seccion

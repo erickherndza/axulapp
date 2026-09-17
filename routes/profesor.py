@@ -29,6 +29,7 @@ from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detecta
 from core.pdf import _generar_pdf_acuerdo
 from core.importar_listado import leer_listado_workbook, construir_plan_multi, aplicar_carga_multi
 import openpyxl
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -43,7 +44,7 @@ def buscar_estudiantes():
     if len(q) < 2 or len(q) > 80:
         return jsonify([])
     like = f"%{q}%"
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT id, nombre, apellido, grado, curso
@@ -77,7 +78,7 @@ def mis_estudiantes():
     prof_id = u.get("id")
     materia = u.get("materia", "")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         # 1️⃣ IDs de estudiantes con notas registradas por este profesor
@@ -226,7 +227,7 @@ def editar_mi_perfil():
     sets   = ", ".join(f"{k}=?" for k in updates)
     valores = list(updates.values()) + [u["id"]]
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(f"UPDATE usuarios SET {sets} WHERE id=?", valores)
         conn.commit()
 
@@ -254,7 +255,7 @@ def ver_perfil_staff(uid):
     if not puede_ver_ajeno and u["id"] != uid:
         return redirect("/mi-perfil")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         staff = conn.execute("SELECT * FROM usuarios WHERE id=?", (uid,)).fetchone()
         if not staff:
@@ -298,7 +299,7 @@ def portal_profesor():
       # quedan al final de su bloque, por apellido/nombre.
       q += " ORDER BY grado, curso, (orden_lista IS NULL), orden_lista, apellido, nombre"
 
-      with sqlite3.connect(DATABASE, timeout=10) as conn:
+      with db_compat.connect(DATABASE, timeout=10) as conn:
           conn.row_factory = sqlite3.Row
           estudiantes = [dict(r) for r in conn.execute(q, params).fetchall()]
 
@@ -483,7 +484,7 @@ def preview_listado_estudiantes():
                    "corresponde a tu perfil. Si esto no es correcto, contacta al coordinador.")
         return jsonify({"error": msg}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         resumen = construir_plan_multi(conn, bloques)
 
@@ -533,7 +534,7 @@ def confirmar_listado_estudiantes():
     if not bloques:
         return jsonify({"error": "Ninguno de los grados/menciones de este listado corresponde a tu perfil."}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         nuevos, actualizados, omitidos_sin_mencion = aplicar_carga_multi(conn, bloques)
 

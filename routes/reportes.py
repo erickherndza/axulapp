@@ -27,6 +27,7 @@ from core.helpers import _notificar_reporte_nuevo
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -73,7 +74,7 @@ def listar_reportes():
     if limit.isdigit():
         q += f" LIMIT {int(limit)}"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(q, params).fetchall()
     return jsonify([dict(r) for r in rows])
@@ -93,7 +94,7 @@ def crear_reporte():
     if not est_id or not tipo or not descripcion:
         return jsonify({"error": "estudiante_id, tipo y descripcion son requeridos"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("""
             INSERT INTO reportes
                 (estudiante_id, tipo, subtipo, titulo, descripcion,
@@ -111,7 +112,7 @@ def crear_reporte():
         conn.commit()
         rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn2:
+    with db_compat.connect(DATABASE, timeout=10) as conn2:
         conn2.row_factory = sqlite3.Row
         _notificar_reporte_nuevo(
             conn2, est_id, rid,
@@ -137,7 +138,7 @@ def actualizar_reporte(rid):
         return jsonify({"error": "Sin campos"}), 400
     sets   = ", ".join(f"{k}=?" for k in campos)
     vals   = list(campos.values()) + [rid]
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(f"UPDATE reportes SET {sets} WHERE id=?", vals)
         conn.commit()
     return jsonify({"ok": True})
@@ -157,7 +158,7 @@ def escalar_reporte_a_caso(rid):
     if rol not in ROLES_PSICOLOGA and rol not in ROLES_COORD and not u.get("es_directora"):
         return jsonify({"error": "Sin permisos para escalar casos."}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rep = conn.execute(
             "SELECT * FROM reportes WHERE id=?", (rid,)
@@ -210,7 +211,7 @@ def escalar_reporte_a_caso(rid):
 @reportes_bp.route("/api/reportes/<int:rid>", methods=["DELETE"])
 @login_required
 def eliminar_reporte(rid):
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("DELETE FROM reportes WHERE id=?", (rid,))
         conn.commit()
     return jsonify({"ok": True})
@@ -223,7 +224,7 @@ def resumen_reportes():
     rol = _normalizar_rol(u.get("rol", ""))
     filtro_canal = " AND (canal='conductual' OR canal IS NULL)" if "psicologa" in rol else ""
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         total    = conn.execute(f"SELECT COUNT(*) FROM reportes WHERE 1=1{filtro_canal}").fetchone()[0]
         abiertos = conn.execute(f"SELECT COUNT(*) FROM reportes WHERE estado='Abierto'{filtro_canal}").fetchone()[0]
         graves   = conn.execute(f"SELECT COUNT(*) FROM reportes WHERE tipo='incidente_grave'{filtro_canal}").fetchone()[0]
@@ -280,7 +281,7 @@ def exportar_reportes_xlsx():
     if severidad: q += " AND r.severidad=?"; params.append(severidad)
     q += " ORDER BY r.fecha DESC"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         rows = conn.execute(q, params).fetchall()
 
     wb = Workbook()
@@ -354,7 +355,7 @@ def exportar_reportes_pdf():
     if severidad: q += " AND r.severidad=?"; params.append(severidad)
     q += " ORDER BY r.fecha DESC"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = [dict(r) for r in conn.execute(q, params).fetchall()]
 

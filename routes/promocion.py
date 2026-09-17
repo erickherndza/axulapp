@@ -31,6 +31,7 @@ from core.auth import login_required, get_usuario, _normalizar_rol
 from core.promocion_engine import evaluar_estudiante, ejecutar_promocion_estudiante
 from core.helpers import _anio_escolar_actual, _get_config_centro, construir_historial_notas
 from core import rls as _rls
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -43,7 +44,7 @@ def promocion_evaluar(est_id):
     """Evalúa el estado de promoción de un estudiante SIN escribir en BD."""
     anio = _anio_escolar_actual()
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             resultado = evaluar_estudiante(conn, est_id, anio)
     except Exception as ex:
@@ -65,7 +66,7 @@ def promocion_ejecutar_individual(est_id):
     u = get_usuario()
     anio = _anio_escolar_actual()
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as conn:
+        with db_compat.connect(DATABASE, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             conn.execute("BEGIN IMMEDIATE")
             try:
@@ -99,7 +100,7 @@ def record_notas(est_id):
     if rol_n not in ROLES_COORD:
         return jsonify({"error": "Sin permisos. Solo coordinación/directora puede ver el récord de notas."}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
         est = conn.execute("SELECT * FROM estudiantes WHERE id=?", (est_id,)).fetchone()

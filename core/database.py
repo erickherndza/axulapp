@@ -11,6 +11,7 @@ from .constants import (
     DATABASE, COLUMNAS_ESTUDIANTES, TABLAS_NUEVAS,
     MIGRACIONES_ESPECIALES, _CACHE_TTL,
 )
+from . import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -37,7 +38,7 @@ def get_db():
     """
     from flask import g
     if "db" not in g:
-        conn = sqlite3.connect(DATABASE, timeout=10)
+        conn = db_compat.connect(DATABASE, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -89,7 +90,7 @@ def migrar_bd():
     """
     logger.info("  ── Migrando base de datos...")
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
 
         # ── WAL mode + índices ───────────────────────────────────────
         conn.execute("PRAGMA journal_mode=WAL")
@@ -325,7 +326,7 @@ def migrar_bd():
     # con código anterior que solo actualizaba grado pero no curso.
     # "4TO MULTIMEDIA" con grado=5TO → "5TO MULTIMEDIA"
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as _c:
+        with db_compat.connect(DATABASE, timeout=10) as _c:
             fixed = _c.execute("""
                 UPDATE estudiantes
                 SET curso = UPPER(grado) ||
@@ -347,7 +348,7 @@ def migrar_bd():
 
     # Elevar usuario 'admin' a superusuario (solo si sigue como coordinador_general)
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as _c:
+        with db_compat.connect(DATABASE, timeout=10) as _c:
             _c.execute(
                 "UPDATE usuarios SET rol='superusuario' WHERE username='admin' AND rol='coordinador_general'"
             )
@@ -359,7 +360,7 @@ def migrar_bd():
 
     # H12: sembrar catálogo de materias si está vacío
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as _c:
+        with db_compat.connect(DATABASE, timeout=10) as _c:
             _c.row_factory = sqlite3.Row
             n_mat = _c.execute("SELECT COUNT(*) FROM materias").fetchone()[0]
             if n_mat == 0:
@@ -373,7 +374,7 @@ def migrar_bd():
 
     # H13: sembrar materias 5TO/6TO MULTIMEDIA en catálogo (si aún no están)
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as _c:
+        with db_compat.connect(DATABASE, timeout=10) as _c:
             _c.row_factory = sqlite3.Row
             from .constants import PLAN_ARTES
             import unicodedata as _ud
@@ -402,7 +403,7 @@ def migrar_bd():
 
     # H3: sembrar CEs de Lenguaje Visual si no existen
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as _c:
+        with db_compat.connect(DATABASE, timeout=10) as _c:
             _c.row_factory = sqlite3.Row
             n_ce = _c.execute(
                 "SELECT COUNT(*) FROM competencias_materia WHERE materia=?",
@@ -432,7 +433,7 @@ def migrar_bd():
 
     # Seed: criterios de promoción Ordenanza 04-2023 MINERD
     try:
-        with sqlite3.connect(DATABASE, timeout=10) as _c:
+        with db_compat.connect(DATABASE, timeout=10) as _c:
             n_crit = _c.execute("SELECT COUNT(*) FROM criterios_promocion").fetchone()[0]
             if n_crit == 0:
                 _criterios = [
@@ -484,7 +485,7 @@ def _seed_admin(hash_func):
     Recibe hash_func (la función _hash de auth.py) para no crear dependencia circular.
     """
     import secrets as _s
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         # Migrar rol antiguo
         conn.execute("UPDATE usuarios SET rol='coordinador_general' WHERE rol='coordinador'")
         conn.commit()

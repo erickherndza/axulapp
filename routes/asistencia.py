@@ -28,6 +28,7 @@ from core.helpers import _get_profesor, _resolver_alcance_profesor, _validar_mat
 from core.ia import _get_groq_client, groq_client, construir_prompt, construir_prompt_planificacion, construir_prompt_rubrica, construir_prompt_estrategia
 from core.excel import _parsear_boletin_bj, _buscar_o_crear_estudiante, _detectar_mencion_listado, _limpiar_nota
 from core.pdf import _generar_pdf_acuerdo
+from core import db_compat
 
 logger = logging.getLogger("axula")
 
@@ -58,7 +59,7 @@ def registrar_asistencia_lote():
         return jsonify({"error": msg}), 403
     prof_id = session.get("user_id")
     creados = 0
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         for r in registros:
             est_id = r.get("estudiante_id")
             estado = r.get("estado", "presente")
@@ -98,7 +99,7 @@ def resumen_mensual_asistencia(prof_id):
     rol_actual = _normalizar_rol(session.get("rol", ""))
     if rol_actual not in ROLES_COORD and session.get("user_id") != prof_id:
         return jsonify({"error": "Sin permisos"}), 403
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         q = (
             "SELECT a.estudiante_id, e.nombre AS est_nombre, e.grado, a.materia,"
@@ -184,7 +185,7 @@ def listar_asistencia():
 
     q += " ORDER BY a.fecha DESC, e.apellido"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(q, params).fetchall()
     return jsonify([dict(r) for r in rows])
@@ -212,7 +213,7 @@ def registrar_asistencia():
 
     prof_id = prof["id"] if prof else 0
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         # Si el pase de lista declaró un grado/sección/modalidad específico,
         # verificar que cada estudiante realmente pertenezca a ese curso —
@@ -284,7 +285,7 @@ def registrar_asistencia():
         and r.get("estudiante_id")
     ]
     if ausentes_ids and fecha:
-        with sqlite3.connect(DATABASE, timeout=10) as conn2:
+        with db_compat.connect(DATABASE, timeout=10) as conn2:
             conn2.row_factory = sqlite3.Row
             for est_id in set(ausentes_ids):
                 _verificar_ausencias_semana(conn2, est_id, fecha)
@@ -309,7 +310,7 @@ def resumen_asistencia(est_id):
     Fórmula MINERD: % = (horas_presentes / horas_totales) × 100
     Umbral reprobación: <80% (margen sobre el 20% de inasistencias permitidas)
     """
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
         rows = conn.execute("""
@@ -375,7 +376,7 @@ def asistencia_por_clase():
 
     q += " ORDER BY apellido, nombre"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(q, params).fetchall()
     return jsonify([dict(r) for r in rows])
@@ -416,7 +417,7 @@ def exportar_asistencia_csv():
     if modalidad: q += " AND e.curso LIKE ?";  params.append(f"%{modalidad}%")
     q += " ORDER BY a.fecha, e.apellido, e.nombre"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(q, params).fetchall()
 
@@ -468,7 +469,7 @@ def calcular_asistencia_mensual():
     mes_str = f"{anio:04d}-{mes:02d}"
     import datetime as _dt
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         # Obtener días hábiles del mes desde calendario
         no_lab = {r[0] for r in conn.execute("""
@@ -543,7 +544,7 @@ def validar_asistencia_mensual():
     anio    = int(data.get("anio"))
     materia = data.get("materia","").strip()
     import datetime as _dt
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("""
             UPDATE asistencia_mensual
                SET validado=1, fecha_validacion=?
@@ -558,7 +559,7 @@ def validar_asistencia_mensual():
 @login_required
 def get_asistencia_mensual_est(est_id):
     """Historial de asistencia mensual de un estudiante."""
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
         rows = conn.execute("""
@@ -590,7 +591,7 @@ def guardar_evaluacion_narrativa():
         return jsonify({"error": "Faltan campos"}), 400
 
     import datetime as _dt
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("""
             INSERT INTO evaluaciones_narrativas
                 (estudiante_id, profesor_id, periodo, anio_escolar, texto, actualizado_en)
@@ -608,7 +609,7 @@ def guardar_evaluacion_narrativa():
 def get_evaluaciones_narrativas(est_id):
     anio_esc = request.args.get("anio_escolar", "2025-2026")
     u = get_usuario()
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)
         # Profesores solo ven las suyas; coordinadores/directora ven todas
@@ -789,7 +790,7 @@ def profesor_estadisticas_asistencia():
 
     est_query += " ORDER BY grado, apellido, nombre"
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
 
         estudiantes = [dict(r) for r in conn.execute(est_query, est_params).fetchall()]

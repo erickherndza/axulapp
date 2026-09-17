@@ -18,6 +18,7 @@ from core.constants import DATABASE
 from core.auth import login_required, get_usuario, _normalizar_rol, rate_limited
 from core import rls as _rls
 from core.helpers import _validar_magic_excel, _anio_escolar_actual, _audit
+from core import db_compat
 
 logger = logging.getLogger("axula")
 expediente_bp = Blueprint("expediente_bp", __name__)
@@ -122,7 +123,7 @@ def buscar_expediente():
     if not cedula and not (nombre or apellido):
         return jsonify({"error": "Proporciona cédula o nombre/apellido"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         if cedula:
             rows = conn.execute(
@@ -157,7 +158,7 @@ def historial_por_estudiante(est_id):
     """Devuelve el historial completo de un estudiante vinculado + notas actuales.
     RLS: coordinadores de ciclo solo ven estudiantes de su ciclo.
     """
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         _rls.verificar_acceso_estudiante(conn, est_id)  # RLS — 403 si fuera de ciclo
         est = conn.execute("SELECT * FROM estudiantes WHERE id=?", (est_id,)).fetchone()
@@ -218,7 +219,7 @@ def crear_expediente():
     prom_vals = [m.get("promedio", 0) for m in materias if m.get("promedio")]
     prom_general = round(sum(prom_vals) / len(prom_vals), 2) if prom_vals else None
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         cedula = d.get("cedula", "").strip() or None
         est_id = _buscar_estudiante_vinculable(conn, cedula, nombre, apellido)
@@ -276,7 +277,7 @@ def editar_expediente(exp_id):
         return jsonify({"error": "Nada que actualizar"}), 400
 
     vals.append(exp_id)
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute(f"UPDATE expedientes_historicos SET {','.join(campos)} WHERE id=?", vals)
         conn.commit()
 
@@ -293,7 +294,7 @@ def vincular_expediente(exp_id):
     if not est_id:
         return jsonify({"error": "estudiante_id requerido"}), 400
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("UPDATE expedientes_historicos SET estudiante_id=? WHERE id=?", (est_id, exp_id))
         conn.commit()
 
@@ -308,7 +309,7 @@ def eliminar_expediente(exp_id):
     if rol not in {"directora", "coordinador_general"}:
         return jsonify({"error": "Sin permisos"}), 403
 
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.execute("DELETE FROM expedientes_historicos WHERE id=?", (exp_id,))
         conn.commit()
 
@@ -427,7 +428,7 @@ def importar_expediente_excel():
 
     # Insertar en BD
     importados = 0
-    with sqlite3.connect(DATABASE, timeout=10) as conn:
+    with db_compat.connect(DATABASE, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         for (_, anio), datos in grupos.items():
             try:
