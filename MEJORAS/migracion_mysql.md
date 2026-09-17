@@ -58,10 +58,13 @@ teoría.**
   `https://axula.erickhernandezarias.net/health` → 200; HTTP redirige solo a
   HTTPS (301). Más simple que AutoSSL y no depende de que el origen renueve
   nada.
-- **`GROQ_API_KEY`/`ANTHROPIC_API_KEY`** — siguen pendientes, no se pudieron
-  copiar desde Render (son secretos enmascarados en su dashboard). Agregar
-  desde cPanel → Setup Python App → axulapp → Environment variables cuando
-  Erick tenga los valores a mano.
+- **`GROQ_API_KEY`/`ANTHROPIC_API_KEY`: RESUELTO.** No se pudieron copiar
+  desde Render (son secretos enmascarados en su dashboard) — Erick generó
+  claves nuevas y se agregaron desde cPanel → Setup Python App →
+  Environment variables. Confirmado en el venv real: `ANTHROPIC: True 108`,
+  `GROQ: True 56` (longitud coincide con las claves reales). Los
+  generadores de IA (planificación ABP, retroalimentación) ya deberían
+  funcionar en Banahosting.
 
 ## LA APP YA ESTÁ VIVA EN BANAHOSTING (2026-09-17)
 
@@ -98,12 +101,20 @@ migrados. Detalle de cómo quedó armado:
   Flexible en vez de AutoSSL en el origen.
 - **Variables de entorno configuradas**: `DATABASE_URL` (apunta a
   `mybcfcli_axulapp` en `localhost:3306`), `SECRET_KEY` (generada nueva,
-  distinta a la de Render). **Sigue pendiente**: `GROQ_API_KEY` y
-  `ANTHROPIC_API_KEY` — no se copiaron desde Render (son secretos
-  enmascarados en su dashboard) — sin ellas, los generadores de IA
-  (planificación ABP, retroalimentación) no funcionan todavía. Agregarlas
-  desde Setup Python App → Environment variables cuando Erick tenga los
-  valores a mano.
+  distinta a la de Render), `GROQ_API_KEY` y `ANTHROPIC_API_KEY` (claves
+  nuevas generadas por Erick, ya confirmadas presentes en el runtime real
+  de la app — ver sección de arriba).
+- **Nota de seguridad sobre estas variables** (pregunta de Erick,
+  2026-09-17): cPanel/Setup Python App las guarda en texto plano en
+  `~/.cl.selector/python-selector.json` (permisos `600`, solo el dueño de
+  la cuenta puede leerlo) y las muestra sin máscara en su UI — a
+  diferencia de Render, que las cifra y nunca las vuelve a mostrar tras
+  guardarlas. No existe un equivalente de ese modelo dentro de este
+  feature de cPanel; es una limitación estructural de shared hosting vs.
+  PaaS administrado, no algo configurable. Verificado además que no quedó
+  ninguna clave real filtrada en `~/.bash_history` (solo el nombre de la
+  variable, de un chequeo `bool()/len()` anterior — 0 coincidencias del
+  valor real).
 
 ## ESTADO: esquema y datos reales ya están en Banahosting (2026-09-17)
 
