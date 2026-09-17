@@ -4,6 +4,70 @@
 > `dipromesapp`). `axula` original NO se toca — sigue en producción en Render
 > con SQLite tal cual. Todo lo de esta migración vive aquí.
 
+## ESTADO: esquema y datos reales ya están en Banahosting (2026-09-17)
+
+- Base de datos `mybcfcli_axulapp` creada en cPanel (usuario propio, privilegios
+  `ALL`). Repo `axulapp` clonado en `/home/mybcfcli/axulapp` con venv Python 3.11.
+- `migrar_bd()` corrido contra el MySQL real → **55 tablas creadas**, idéntico
+  al esquema de SQLite.
+- **Datos reales migrados desde Render** (fila por fila, conexión directa
+  Render Shell → MySQL de Banahosting por red, reutilizando la misma cuenta
+  MySQL — no un dump intermedio): **26 tablas con datos, 1300 filas, 0
+  errores** tras las correcciones de esta sesión. Incluye el roster completo
+  (`estudiantes`: 608 filas), `usuarios` (31), `conducta_registro` (33),
+  `casos` (1), `materias` (193), `recovery_tokens` (19), `ia_cache` (23), etc.
+  `materias_calificaciones`/`calificaciones_periodo`/`cuaderno_anecdotico`
+  están en 0 filas — consistente con el estado real (reset de notas para el
+  año escolar 2026-2027, documentado en sesión 19, notas aún no cargadas al
+  momento de esta migración).
+- **27 tablas se omitieron a propósito** — existen en la BD vieja de Render
+  pero no en el esquema actual del código: son remanentes de los módulos
+  institucionales eliminados en la purga de sesión 14 (`normativa_chunks`
+  con 3815 filas del viejo sistema RAG, `proveedores`, `nomina_pagos`,
+  `raciones_diarias`, etc.). Correcto no migrarlas — nada en el código actual
+  las usa.
+- **Acceso remoto a MySQL** se habilitó temporalmente (`uapi Mysql add_host
+  host=%`) solo para la ventana de la migración y se revirtió (`delete_host`)
+  al terminar — no queda abierto.
+
+**2 problemas reales encontrados y corregidos durante la migración de datos
+(ninguno visible en las pruebas con Docker, porque Docker partía de una BD
+vacía sin datos reales — solo se detectan corriendo contra los datos de
+producción de verdad):**
+1. **Deuda de esquema (schema drift)**: la BD real de Render tiene columnas
+   que el esquema actual del código (`TABLAS_NUEVAS`) no crea —
+   `estudiantes.ind_conducta`, `asignaciones.instrucciones`,
+   `asistencia.metodo`, `notificaciones.origen_tipo`,
+   `movimientos_financieros.proveedor_id`, `escaneos_documentos.categoria`.
+   Son columnas agregadas en algún momento por scripts/migraciones puntuales
+   que nunca se reflejaron de vuelta en `core/constants.py`. El script de
+   migración de datos las detecta automáticamente comparando
+   `PRAGMA table_info` (origen) contra `SHOW COLUMNS` (destino) y agrega las
+   que falten como `TEXT NULL` antes de copiar — no se pierde ningún dato,
+   pero **queda pendiente** decidir si estas columnas deben incorporarse
+   formalmente al esquema en `core/constants.py` (probablemente sí, ya que
+   claramente se usan en producción).
+2. **Colación case/accent-insensitive de MySQL vs. SQLite case-sensitive**:
+   `materias.nombre_canonico` tiene `UNIQUE`, y dos filas reales
+   ("ARMONIA I" sin acento/mayúscula vs. "Armonía I" con acento/minúscula)
+   son válidas y distintas en SQLite (comparación binaria) pero MySQL las
+   trata como duplicadas bajo su colación por defecto (`utf8mb4_0900_ai_ci`,
+   *ai*=accent-insensitive, *ci*=case-insensitive). Fix: se cambió la
+   columna a `COLLATE utf8mb4_bin` (sensible a mayúsculas y acentos, mismo
+   comportamiento que SQLite) — preserva ambas filas sin fusionarlas ni
+   perder información. Es un dato real duplicado por inconsistencia de
+   captura (mismo patrón que `_MATERIA_SINONIMOS` ya documentado en sesiones
+   anteriores) — **queda pendiente** que Erick decida si conviene
+   consolidarlas más adelante, no se tocó el contenido, solo se preservó.
+
+**Pendiente de esta sesión, no bloqueante:**
+- Formalizar en `core/constants.py` las columnas de drift descubiertas
+  (punto 1 arriba) para que el esquema oficial coincida con lo que la app
+  realmente usa en producción.
+- Falta correr el Setup Python App real en cPanel (por ahora todo se hizo
+  con un venv manual + gunicorn no configurado aún) para que la app sirva
+  tráfico HTTP real desde Banahosting.
+
 ## Por qué esto no fue "cambiar el driver" (como dipromes)
 
 `dipromes` ya usaba SQLAlchemy ORM sobre PostgreSQL — migrar a MySQL fue
