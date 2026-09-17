@@ -4,6 +4,33 @@
 > `dipromesapp`). `axula` original NO se toca — sigue en producción en Render
 > con SQLite tal cual. Todo lo de esta migración vive aquí.
 
+## LOS 3 PENDIENTES DE LA SESIÓN ANTERIOR YA ESTÁN RESUELTOS (2026-09-17)
+
+- **`reportlab`/Pillow** — el fallo de compilación NO era falta de wheel: sí
+  existe wheel manylinux para Pillow en Python 3.11 (`pillow-12.2.0-cp311-
+  cp311-manylinux2014_x86_64...whl`), pip simplemente no lo estaba usando por
+  default en este entorno. Forzando `pip install --only-binary :all: Pillow`
+  se instaló al toque, y con eso `reportlab`, `pandas`, `numpy` y
+  `xlsxwriter` (los que habían fallado antes) instalaron limpios también —
+  **las dependencias completas de `requirements.txt` ya están en el venv
+  real de la app** (`/home/mybcfcli/virtualenv/axulapp/3.11/`). PDF (boletín,
+  acuerdo de compromiso) y Excel ya deberían funcionar. Verificado
+  `import reportlab, PIL` y `import app` completos sin error, con reinicio
+  de Passenger (`touch axulapp/tmp/restart.txt`) y `/health` respondiendo
+  200 después.
+- **HTTPS** — en vez de AutoSSL en el origen (cPanel), se usó el proxy de
+  Cloudflare (nube naranja) en el registro `axula` — el modo SSL/TLS de la
+  zona ya estaba en **Flexible** (Cloudflare↔visitante cifrado,
+  Cloudflare↔origen en HTTP plano, que es justo lo que necesita un origen
+  sin certificado propio). Un solo toggle en el DNS record, sin tocar cPanel.
+  `https://axula.erickhernandezarias.net/health` → 200; HTTP redirige solo a
+  HTTPS (301). Más simple que AutoSSL y no depende de que el origen renueve
+  nada.
+- **`GROQ_API_KEY`/`ANTHROPIC_API_KEY`** — siguen pendientes, no se pudieron
+  copiar desde Render (son secretos enmascarados en su dashboard). Agregar
+  desde cPanel → Setup Python App → axulapp → Environment variables cuando
+  Erick tenga los valores a mano.
+
 ## LA APP YA ESTÁ VIVA EN BANAHOSTING (2026-09-17)
 
 `http://axula.erickhernandezarias.net/` responde 200 vía Passenger contra el
@@ -18,17 +45,9 @@ migrados. Detalle de cómo quedó armado:
 - **Venv real de la app**: `/home/mybcfcli/virtualenv/axulapp/3.11/` (el que
   gestiona Passenger — no el venv manual `~/axulapp_venv` usado para las
   pruebas de esquema/datos de antes, que ya no hace falta).
-- **`reportlab` NO se pudo instalar** — su dependencia `Pillow` no tiene
-  wheel precompilado para este Python 3.11/plataforma y falla al compilar
-  desde código fuente (`RuntimeError: can't start new thread`, típico de las
-  restricciones de CageFS en hosting compartido). Se instalaron el resto de
-  las dependencias (Flask, PyMySQL, openpyxl, python-docx, groq, anthropic,
-  httpx, etc.) sin problema. Como `reportlab` se importa de forma perezosa
-  dentro de la función (`core/pdf.py::_generar_pdf_acuerdo`, no a nivel de
-  módulo), **la app arranca y funciona normal — solo fallará si alguien
-  genera un PDF** (boletín, acuerdo de compromiso). Pendiente: buscar una
-  versión de Pillow con wheel compatible, o un mecanismo de generación de
-  PDF sin Pillow.
+- **`reportlab`/Pillow: RESUELTO** (ver sección de arriba) — el primer
+  intento de esta sesión falló porque pip no eligió el wheel disponible por
+  defecto, no porque no existiera. `--only-binary :all:` lo resolvió.
 - **Bug real de cPanel encontrado (ya documentado en el historial de
   `dipromesapp`, pero se repitió aquí)**: al crear la app desde el asistente
   de "Setup Python App", cPanel sobrescribió `passenger_wsgi.py` con un stub
@@ -43,12 +62,11 @@ migrados. Detalle de cómo quedó armado:
   `50.31.176.135` (IP compartida del hosting) en modo **DNS only** (sin
   proxy naranja), igual que se hizo para `dipromes`. Verificado que resuelve
   y que la app responde correctamente.
-- **SSL**: aún no emitido — pendiente correr AutoSSL desde cPanel una vez
-  que el DNS esté propagado en todas partes (Let's Encrypt, mismo mecanismo
-  que dipromesapp). Mientras tanto la app solo responde por HTTP.
+- **SSL: RESUELTO** (ver sección de arriba) — proxy de Cloudflare en modo
+  Flexible en vez de AutoSSL en el origen.
 - **Variables de entorno configuradas**: `DATABASE_URL` (apunta a
   `mybcfcli_axulapp` en `localhost:3306`), `SECRET_KEY` (generada nueva,
-  distinta a la de Render). **Pendientes**: `GROQ_API_KEY` y
+  distinta a la de Render). **Sigue pendiente**: `GROQ_API_KEY` y
   `ANTHROPIC_API_KEY` — no se copiaron desde Render (son secretos
   enmascarados en su dashboard) — sin ellas, los generadores de IA
   (planificación ABP, retroalimentación) no funcionan todavía. Agregarlas
