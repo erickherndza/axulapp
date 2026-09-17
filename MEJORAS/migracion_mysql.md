@@ -4,6 +4,38 @@
 > `dipromesapp`). `axula` original NO se toca — sigue en producción en Render
 > con SQLite tal cual. Todo lo de esta migración vive aquí.
 
+## VERIFICACIÓN FINAL — todo lo técnico ya está confirmado (2026-09-17, 2da pasada)
+
+- **El hosting real corre MariaDB 10.6.20, no MySQL** (`SELECT VERSION()`
+  confirmado en el servidor) — esto no cambia nada de lo ya hecho (toda la
+  capa `db_compat.py` es compatible con ambos), salvo el índice funcional de
+  abajo, que sí es específico de sintaxis MySQL 8.
+- **Índice pendiente `idx_exp_hist_nombre`: creado.** La sintaxis de
+  "functional key parts" con `CAST` (commit anterior) es de MySQL 8.0.13+ y
+  MariaDB la rechaza con error 1064. Se resolvió quitando el `LOWER()` e
+  indexando `apellido`/`nombre` tal cual (con su longitud de clave 191,
+  vía el mismo mecanismo que cualquier otra columna TEXT) — se pierde la
+  aceleración case-insensitive de esa búsqueda puntual (queda como table
+  scan, aceptable para el archivo histórico), pero el índice existe y no
+  bloquea nada. Confirmado con `SHOW INDEX` contra el MariaDB real.
+- **Respaldo con `mysqldump`: probado de verdad, no solo revisado en
+  código.** Corrido `hacer_respaldo(forzar=True)` contra el entorno real de
+  Passenger → generó un dump válido de 670 KB con estructura de tablas real
+  (`db_backup_2026-09-17.sql` en `axulapp/backups/`). `mysqldump` sí está en
+  el PATH del entorno de la app.
+- **Generación de PDF: probada de verdad.** Reportlab construyó un PDF
+  válido (1601 bytes, header `%PDF-` correcto) en el venv real de la app.
+  No se probó la función específica `_generar_pdf_acuerdo()` con datos de
+  un estudiante real (para no exponer información personal innecesariamente
+  en una prueba) — la maquinaria base de reportlab/Pillow ya está
+  confirmada funcionando en este entorno, que era el riesgo real.
+- **App reiniciada y verificada una última vez**: `https://axula.erickhernandezarias.net/health`
+  → 200 después de todos los cambios de esta pasada.
+
+**Con esto, todo lo que dependía de mí (no de que Erick decida algo sobre
+Render) queda resuelto y verificado contra el entorno real — no solo en
+teoría.**
+
 ## LOS 3 PENDIENTES DE LA SESIÓN ANTERIOR YA ESTÁN RESUELTOS (2026-09-17)
 
 - **`reportlab`/Pillow** — el fallo de compilación NO era falta de wheel: sí
