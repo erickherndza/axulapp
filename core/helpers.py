@@ -13,7 +13,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from flask import session, request, render_template
 
-from .constants import DATABASE, DOMINIOS_INSTITUCIONALES, ROLES_COORD, DEFAULTS_CENTRO
+from .constants import DATABASE, DOMINIOS_INSTITUCIONALES, ROLES_COORD, ROLES_PSICOLOGA, DEFAULTS_CENTRO
 from .auth import get_usuario, _normalizar_rol
 from . import db_compat
 
