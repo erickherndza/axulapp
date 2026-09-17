@@ -339,6 +339,19 @@ COLUMNAS_ESTUDIANTES = [
     ("ciclo",             "TEXT",    "'segundo_ciclo'"),
     ("seccion",           "TEXT",    "'A'"),
     ("tiene_notas",       "INTEGER", 0),
+    # — Expediente estudiantil: indicadores resumen (nivel textual: 'neutro'/
+    # 'alerta'/'critico'/'observacion'/'destacado'/'activo') calculados y
+    # escritos por core/helpers.py::_recalcular_indicadores(). Esa función ya
+    # intenta un ALTER TABLE defensivo antes de usarlos, pero con SQL mal
+    # formado ("DEFAULT neutro" sin comillas) que siempre falla en silencio
+    # (except Exception: pass) — las columnas solo existían en producción
+    # porque alguna vez se agregaron a mano contra la BD real de Render.
+    # Formalizadas aquí para que una instalación nueva (o esta migración a
+    # MySQL) no dependa de ese ALTER roto.
+    ("ind_conducta",      "TEXT",    "'neutro'"),
+    ("ind_psico",         "TEXT",    "'neutro'"),
+    ("ind_academico",     "TEXT",    "'neutro'"),
+    ("ind_logros",        "TEXT",    "'neutro'"),
     # — Mención —
     ("mencion",           "TEXT",    "NULL"),
     # ── MÚSICA — Módulos técnicos ────────────────────────────────────────────
@@ -1493,6 +1506,23 @@ MIGRACIONES_ESPECIALES = [
     ("Agregar asignatura a coherencia_horizontal",
      "ALTER TABLE coherencia_horizontal ADD COLUMN asignatura TEXT DEFAULT ''",
      "asignatura", "coherencia_horizontal"),
+    # ── Escáner OCR — guardado en archivo del documento escaneado ───────────
+    # routes/ocr.py::guardar_en_archivo() las usa (categoria/personal_id/
+    # en_perfil/metodo_uso), pero nunca se agregaron a TABLAS_NUEVAS —
+    # existían en la BD real de producción por una migración puntual vieja
+    # nunca reflejada aquí. Detectado migrando los datos reales a MySQL.
+    ("Agregar categoria a escaneos_documentos",
+     "ALTER TABLE escaneos_documentos ADD COLUMN categoria TEXT DEFAULT 'general'",
+     "categoria", "escaneos_documentos"),
+    ("Agregar personal_id a escaneos_documentos",
+     "ALTER TABLE escaneos_documentos ADD COLUMN personal_id INTEGER",
+     "personal_id", "escaneos_documentos"),
+    ("Agregar en_perfil a escaneos_documentos",
+     "ALTER TABLE escaneos_documentos ADD COLUMN en_perfil INTEGER DEFAULT 0",
+     "en_perfil", "escaneos_documentos"),
+    ("Agregar metodo_uso a escaneos_documentos",
+     "ALTER TABLE escaneos_documentos ADD COLUMN metodo_uso TEXT",
+     "metodo_uso", "escaneos_documentos"),
     # ← AGREGA MIGRACIONES PUNTUALES AQUÍ
 ]
 

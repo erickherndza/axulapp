@@ -2706,12 +2706,10 @@ def guardar_nota_ce_y_recalcular(conn, est_id, prof_id, materia, ce_numero, nota
 
 
 def _recalcular_indicadores(conn, est_id):
-    for col in ['ind_conducta','ind_psico','ind_academico','ind_logros']:
-        try:
-            conn.execute('ALTER TABLE estudiantes ADD COLUMN ' + col + ' TEXT DEFAULT neutro')
-        except Exception:
-            pass
-
+    # ind_conducta/ind_psico/ind_academico/ind_logros están garantizadas por
+    # COLUMNAS_ESTUDIANTES (core/constants.py) — antes había aquí un ALTER
+    # TABLE defensivo con SQL mal formado ("DEFAULT neutro" sin comillas) que
+    # siempre fallaba en silencio y nunca llegó a agregar nada.
     def score_to_nivel(s):
         if s <= 60: return 'critico'
         if s <= 75: return 'alerta'
