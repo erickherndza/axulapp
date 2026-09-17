@@ -120,14 +120,17 @@ _CREATE_INDEX_WHERE_RE = re.compile(
 )
 
 # Índices funcionales sobre LOWER(col) (único uso real: idx_exp_hist_nombre
-# en expedientes_historicos) — MySQL 8.0.13+ soporta "functional key parts"
-# con doble paréntesis, pero además exige que la expresión no devuelva
-# BLOB/TEXT sin acotar: "Cannot create a functional index on an expression
-# that returns a BLOB or TEXT. Please consider using CAST." Se resuelve
-# envolviendo en CAST(...AS CHAR(191)) — mismo largo que el resto de las
-# columnas TEXT convertidas a VARCHAR(191) en esta capa. Acotado a
-# sentencias CREATE INDEX para no tocar los usos normales de LOWER() en
-# WHERE de queries (core/ia.py, routes/expediente.py, etc.).
+# en expedientes_historicos). MySQL 8.0.13+ soporta "functional key parts",
+# pero Banahosting corre MariaDB 10.6 (confirmado con SELECT VERSION()), que
+# no acepta esa sintaxis en absoluto (error 1064). MariaDB tampoco tiene un
+# equivalente directo sencillo para este caso, así que se opta por quitar el
+# LOWER() y indexar la columna tal cual — se pierde la aceleración
+# case-insensitive de esa búsqueda puntual (queda como table scan, aceptable
+# para el archivo histórico, no es un camino caliente), pero el índice se
+# crea y la columna sigue recibiendo su longitud de clave vía
+# _add_key_lengths() como cualquier otra columna TEXT. Acotado a sentencias
+# CREATE INDEX para no tocar los usos normales de LOWER() en WHERE de
+# queries (core/ia.py, routes/expediente.py, etc.).
 _CREATE_INDEX_LOWER_RE = re.compile(r"LOWER\(\s*([A-Za-z_]\w*)\s*\)", re.IGNORECASE)
 
 # Registro de columnas TEXT por tabla, para poder arreglar CREATE INDEX
@@ -206,7 +209,7 @@ def _translate_sql(sql: str) -> str:
     sql = _CREATE_INDEX_IFNE_RE.sub("CREATE INDEX", sql)
     sql = _CREATE_INDEX_WHERE_RE.sub(r"\1", sql)
     if re.match(r"\s*CREATE\s+(?:UNIQUE\s+)?INDEX\b", sql, re.IGNORECASE):
-        sql = _CREATE_INDEX_LOWER_RE.sub(r"(CAST(LOWER(\1) AS CHAR(191)))", sql)
+        sql = _CREATE_INDEX_LOWER_RE.sub(r"\1", sql)
     sql = _DEFAULT_DATE_NOW_RE.sub("DEFAULT (CURRENT_DATE)", sql)
     sql = _DATE_NOW_MINUS_DAYS_RE.sub(r"DATE_SUB(CURDATE(), INTERVAL \1 DAY)", sql)
     sql = _DATE_NOW_RE.sub("CURDATE()", sql)
