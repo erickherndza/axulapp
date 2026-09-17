@@ -71,6 +71,12 @@ _DATETIME_NOW_RE = re.compile(r"datetime\(\s*'now'\s*\)", re.IGNORECASE)
 _STRFTIME_YM_RE = re.compile(r"strftime\(\s*'%Y-%m'\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)", re.IGNORECASE)
 _STRFTIME_Y_RE = re.compile(r"strftime\(\s*'%Y'\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)", re.IGNORECASE)
 
+# changes() (filas afectadas por la última sentencia en esta conexión) →
+# ROW_COUNT() en MySQL, mismo significado (incluye INSERT IGNORE: devuelve 0
+# si la fila se ignoró por clave duplicada). Único uso real:
+# core/helpers.py::sembrar_ces_materia().
+_CHANGES_RE = re.compile(r"\bchanges\(\)", re.IGNORECASE)
+
 # CREATE INDEX IF NOT EXISTS no existe en MySQL (a diferencia de CREATE TABLE
 # IF NOT EXISTS, que sí). Se quita el "IF NOT EXISTS" y la idempotencia se
 # recupera en _MySQLCursor.execute() absorbiendo el error 1061 (índice
@@ -194,6 +200,7 @@ def _translate_sql(sql: str) -> str:
     sql = _DATETIME_NOW_RE.sub("NOW()", sql)
     sql = _STRFTIME_YM_RE.sub(r"DATE_FORMAT(\1, '%Y-%m')", sql)
     sql = _STRFTIME_Y_RE.sub(r"YEAR(\1)", sql)
+    sql = _CHANGES_RE.sub("ROW_COUNT()", sql)
     sql = _INLINE_TEXT_KEY_RE.sub(r"\1VARCHAR(191)", sql)
     sql = _add_key_lengths(sql)
     sql = _DEFAULT_LITERAL_RE.sub(r"DEFAULT (\1)", sql)
