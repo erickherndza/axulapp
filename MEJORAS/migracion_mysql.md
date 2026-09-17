@@ -4,6 +4,57 @@
 > `dipromesapp`). `axula` original NO se toca — sigue en producción en Render
 > con SQLite tal cual. Todo lo de esta migración vive aquí.
 
+## LA APP YA ESTÁ VIVA EN BANAHOSTING (2026-09-17)
+
+`http://axula.erickhernandezarias.net/` responde 200 vía Passenger contra el
+MySQL real (`GET /health` → `{"status":"ok"}`), con los datos reales
+migrados. Detalle de cómo quedó armado:
+
+- **Setup Python App** (cPanel): Python 3.11.16, Application root `axulapp`,
+  Application URL `axula.erickhernandezarias.net` (subdominio propio, NO
+  compartiendo document root con `globalistinternational.org` — ese dominio
+  tiene WordPress con reglas de `.htaccess` que interceptan cualquier ruta,
+  mismo problema que ya documentó `dipromesapp`).
+- **Venv real de la app**: `/home/mybcfcli/virtualenv/axulapp/3.11/` (el que
+  gestiona Passenger — no el venv manual `~/axulapp_venv` usado para las
+  pruebas de esquema/datos de antes, que ya no hace falta).
+- **`reportlab` NO se pudo instalar** — su dependencia `Pillow` no tiene
+  wheel precompilado para este Python 3.11/plataforma y falla al compilar
+  desde código fuente (`RuntimeError: can't start new thread`, típico de las
+  restricciones de CageFS en hosting compartido). Se instalaron el resto de
+  las dependencias (Flask, PyMySQL, openpyxl, python-docx, groq, anthropic,
+  httpx, etc.) sin problema. Como `reportlab` se importa de forma perezosa
+  dentro de la función (`core/pdf.py::_generar_pdf_acuerdo`, no a nivel de
+  módulo), **la app arranca y funciona normal — solo fallará si alguien
+  genera un PDF** (boletín, acuerdo de compromiso). Pendiente: buscar una
+  versión de Pillow con wheel compatible, o un mecanismo de generación de
+  PDF sin Pillow.
+- **Bug real de cPanel encontrado (ya documentado en el historial de
+  `dipromesapp`, pero se repitió aquí)**: al crear la app desde el asistente
+  de "Setup Python App", cPanel sobrescribió `passenger_wsgi.py` con un stub
+  genérico (`imp.load_source('wsgi', 'passenger_wsgi.py')`) que se carga a
+  sí mismo → 500 de Passenger. Se corrigió reescribiendo el archivo
+  directamente por Terminal (`echo '<base64>' | base64 -d > passenger_wsgi.py`,
+  no editando desde la UI de cPanel, que vuelve a regenerar el stub) y
+  forzando el reinicio con `touch axulapp/tmp/restart.txt` (el trigger
+  estándar de Passenger) en vez de usar el botón "Save" del asistente.
+- **DNS**: `erickhernandezarias.net` usa Cloudflare como DNS autoritativo
+  (no los nameservers de Banahosting) — se creó el registro `A` `axula` →
+  `50.31.176.135` (IP compartida del hosting) en modo **DNS only** (sin
+  proxy naranja), igual que se hizo para `dipromes`. Verificado que resuelve
+  y que la app responde correctamente.
+- **SSL**: aún no emitido — pendiente correr AutoSSL desde cPanel una vez
+  que el DNS esté propagado en todas partes (Let's Encrypt, mismo mecanismo
+  que dipromesapp). Mientras tanto la app solo responde por HTTP.
+- **Variables de entorno configuradas**: `DATABASE_URL` (apunta a
+  `mybcfcli_axulapp` en `localhost:3306`), `SECRET_KEY` (generada nueva,
+  distinta a la de Render). **Pendientes**: `GROQ_API_KEY` y
+  `ANTHROPIC_API_KEY` — no se copiaron desde Render (son secretos
+  enmascarados en su dashboard) — sin ellas, los generadores de IA
+  (planificación ABP, retroalimentación) no funcionan todavía. Agregarlas
+  desde Setup Python App → Environment variables cuando Erick tenga los
+  valores a mano.
+
 ## ESTADO: esquema y datos reales ya están en Banahosting (2026-09-17)
 
 - Base de datos `mybcfcli_axulapp` creada en cPanel (usuario propio, privilegios
