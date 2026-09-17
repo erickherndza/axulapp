@@ -1,0 +1,3157 @@
+# -*- coding: utf-8 -*-
+"""Funciones auxiliares del sistema Axula."""
+
+import os
+import sqlite3
+import logging
+import re
+import json as _json
+import smtplib
+import threading
+from datetime import datetime, date, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from flask import session, request, render_template
+
+from .constants import DATABASE, DOMINIOS_INSTITUCIONALES, ROLES_COORD, DEFAULTS_CENTRO
+from .auth import get_usuario, _normalizar_rol
+
+logger = logging.getLogger("axula")
+
+__all__ = [
+    "_alerta_nuevo_reporte",
+    "_anio_escolar_actual",
+    "_anonimizar_estudiante",
+    "_audit",
+    "_buscar_estudiante_bd",
+    "_calcular_bienestar_emocional",
+    "_calcular_indice_conductual",
+    "_calcular_nota_final_con_recuperacion",
+    "_color_nota",
+    "catalogo_materias_grado",
+    "construir_historial_notas",
+    "_construir_prompt_asignacion",
+    "_crear_notificacion",
+    "_delete_recovery_token",
+    "_enviar_bienvenida",
+    "_features_para_clustering",
+    "_generar_ics",
+    "_get_config_centro",
+    "_get_hijos",
+    "_get_periodos_estado",
+    "_get_profesor",
+    "_get_recovery_token",
+    "_guardar_recovery_token",
+    "_hook_asistencia_ausente",
+    "_hook_nuevo_reporte",
+    "_is_api_request",
+    "_nota_estado",
+    "_nota_requiere_recuperacion",
+    "_enviar_email_raw",
+    "_notificar",
+    "_notificar_psicologa",
+    "_notificar_reporte_nuevo",
+    "_parse_ics_date",
+    "_periodo_actual",
+    "_periodo_de_fecha",
+    "_periodo_bloqueado",
+    "registrar_conducta",
+    "_crear_caso_desde_conducta",
+    "_prompt_sanitize",
+    "_psicologa_del_ciclo",
+    "_recalcular_indicadores",
+    "_registrar_ausencia_semanal",
+    "_render_perfil_staff",
+    "_resolver_alcance_profesor",
+    "resolver_plan_grado_mencion_profesor",
+    "_semana_iso",
+    "_send_recovery_email",
+    "_validar_email_institucional",
+    "_validar_email_usuario",
+    "_validar_materia_profesor",
+    "_validar_magic_archivo",
+    "_verificar_ausencias_semana",
+    "analizar_perfil_maestro",
+    "calcular_promedio_modulos",
+    "calcular_proyeccion",
+    "calcular_motor_conductual",
+    "_semaforo_color",
+    "_semaforo_emoji",
+    "limpiar_v",
+    "_normalizar_materia",
+    "obtener_notas_estudiante",
+    "recalcular_kpis_estudiante",
+    "sembrar_competencias_materia",
+    "calcular_cf_por_ce",
+    "guardar_nota_ce_y_recalcular",
+]
+
+# Aliases de materias: normaliza variantes de casing/escritura a nombre canónico MINERD
+_ALIAS_MATERIAS = {
+    "lengua española":      "Lengua Española",
+    "lengua espanola":      "Lengua Española",
+    "español":              "Lengua Española",
+    "espanol":              "Lengua Española",
+    "lengua":               "Lengua Española",
+    "matemática":           "Matemática",
+    "matematica":           "Matemática",
+    "matemáticas":          "Matemática",
+    "matematicas":          "Matemática",
+    "ciencias de la naturaleza": "Ciencias de la Naturaleza",
+    "ciencias naturales":   "Ciencias de la Naturaleza",
+    "ciencias sociales":    "Ciencias Sociales",
+    "sociales":             "Ciencias Sociales",
+    "educación artística":  "Educación Artística",
+    "educacion artistica":  "Educación Artística",
+    "ed. artística":        "Educación Artística",
+    "ed artistica":         "Educación Artística",
+    "educación física":     "Educación Física",
+    "educacion fisica":     "Educación Física",
+    "ed. física":           "Educación Física",
+    "ed física":            "Educación Física",
+    "idioma inglés":        "Idioma Inglés",
+    "idioma ingles":        "Idioma Inglés",
+    "inglés":               "Idioma Inglés",
+    "ingles":               "Idioma Inglés",
+    "idioma francés":       "Idioma Francés",
+    "idioma frances":       "Idioma Francés",
+    "francés":              "Idioma Francés",
+    "frances":              "Idioma Francés",
+    "formación integral":   "Formación Integral Humana y Religiosa",
+    "formacion integral":   "Formación Integral Humana y Religiosa",
+    "fihr":                 "Formación Integral Humana y Religiosa",
+}
+
+
+def get_ring_color(promedio, theme='light'):
+    """Color del anillo de progreso — Axula v3. Sin verde fluorescente."""
+    if theme == 'light':
+        if promedio is None:    return '#D3D1C7'
+        if promedio < 60:       return '#E24B4A'
+        if promedio < 70:       return '#378ADD'
+        if promedio < 80:       return '#378ADD'
+        if promedio < 89:       return '#185FA5'
+        return                         '#042C53'
+    else:
+        if promedio is None:    return '#143D6B'
+        if promedio < 60:       return '#E8A0A0'
+        if promedio < 70:       return '#7EB3D8'
+        if promedio < 80:       return '#7EB3D8'
+        if promedio < 89:       return '#A8CCEA'
+        return                         '#9FD4C4'
+
+
+def get_estado_class(promedio):
+    """Clase CSS Axula según promedio (para ax-metric-*)."""
+    if promedio is None:    return 'ax-metric-default'
+    if promedio < 70:       return 'ax-metric-critico'
+    if promedio < 80:       return 'ax-metric-obs'
+    if promedio < 89:       return 'ax-metric-bueno'
+    return                         'ax-metric-optimo'
+
+
+def _normalizar_materia(nombre: str) -> str:
+    """
+    Normaliza el nombre de una materia a su forma canónica MINERD.
+    Aplica alias conocidos primero; si no hay alias, usa Title Case limpio.
+    Evita duplicados por diferencias de casing en materias_calificaciones.
+    """
+    if not nombre:
+        return nombre
+    norm = nombre.strip().lower().rstrip(".")
+    if norm in _ALIAS_MATERIAS:
+        return _ALIAS_MATERIAS[norm]
+    # Sin alias: Title Case preservando acentos
+    return " ".join(w.capitalize() for w in nombre.strip().split())
+
+
+def _anonimizar_estudiante(est_id, nombre=None, apellido=None):
+    """
+    Retorna un código anónimo estable para usar en prompts de IA.
+    El código es determinista para el mismo est_id (EST-XXXX),
+    así que si la IA lo menciona se puede rastrear internamente.
+    Nunca envía nombre ni apellido real a la API.
+    """
+    import hashlib as _hl
+    h = _hl.md5(str(est_id).encode()).hexdigest()[:4].upper()
+    return f"EST-{h}"
+
+
+def _prompt_sanitize(texto):
+    """
+    Elimina patrones comunes de datos personales de un string
+    antes de enviarlo a una IA externa.
+    Solo aplica a campos de texto libre.
+    """
+    import re as _re
+    # Cédulas dominicanas (XXX-XXXXXXX-X)
+    texto = _re.sub(r'\b\d{3}-\d{7}-\d\b', '[CEDULA]', texto)
+    # Teléfonos (809/829/849-XXX-XXXX)
+    texto = _re.sub(r'\b(?:809|829|849)[\s.-]?\d{3}[\s.-]?\d{4}\b', '[TEL]', texto)
+    return texto
+
+# ── VALIDACIÓN DE ARCHIVOS ───────────────────────────────────────────────────
+
+# Magic bytes de formatos permitidos
+_MAGIC_IMAGEN = {
+    "jpg":  (b"\xFF\xD8\xFF",),
+    "jpeg": (b"\xFF\xD8\xFF",),
+    "png":  (b"\x89PNG\r\n\x1a\n",),
+    "webp": None,          # WEBP requiere check especial (ver abajo)
+    "gif":  (b"GIF87a", b"GIF89a"),
+}
+_MAGIC_OFFICE = {
+    "xlsx": (b"PK\x03\x04",),                       # ZIP (Office Open XML)
+    "xls":  (b"\xD0\xCF\x11\xE0",),                 # OLE Compound Document
+}
+# Magic bytes para todos los tipos aceptados en la biblioteca de archivos
+_MAGIC_ARCHIVOS = {
+    "pdf":  (b"%PDF",),                              # PDF
+    "docx": (b"PK\x03\x04",),                        # ZIP/Office Open XML
+    "doc":  (b"\xD0\xCF\x11\xE0",),                 # OLE Compound Document
+    "xlsx": (b"PK\x03\x04",),
+    "xls":  (b"\xD0\xCF\x11\xE0",),
+    "jpg":  (b"\xFF\xD8\xFF",),
+    "jpeg": (b"\xFF\xD8\xFF",),
+    "png":  (b"\x89PNG\r\n\x1a\n",),
+}
+
+
+def _validar_magic_imagen(datos: bytes, ext: str) -> bool:
+    """Verifica que los bytes del archivo coincidan con la extensión declarada."""
+    ext = ext.lower().lstrip(".")
+    if ext == "webp":
+        # RIFF????WEBP
+        return datos[:4] == b"RIFF" and datos[8:12] == b"WEBP"
+    firmas = _MAGIC_IMAGEN.get(ext)
+    if firmas is None:
+        return False
+    return any(datos[:len(f)] == f for f in firmas)
+
+
+def _validar_magic_excel(datos: bytes, ext: str) -> bool:
+    """Verifica que el archivo sea realmente un Excel o CSV válido."""
+    ext = ext.lower().lstrip(".")
+    if ext == "csv":
+        # CSV: debe ser texto decodificable
+        try:
+            datos[:512].decode("utf-8-sig", errors="strict")
+            return True
+        except UnicodeDecodeError:
+            return False
+    firmas = _MAGIC_OFFICE.get(ext)
+    if firmas is None:
+        return False
+    return any(datos[:len(f)] == f for f in firmas)
+
+
+def _validar_magic_archivo(datos: bytes, ext: str) -> bool:
+    """
+    Valida que los magic bytes del contenido real coincidan con la extensión.
+    Úsalo en subidas de archivos para prevenir MIME-type spoofing.
+    Retorna False si el contenido no corresponde al tipo declarado.
+    """
+    ext = ext.lower().lstrip(".")
+    firmas = _MAGIC_ARCHIVOS.get(ext)
+    if firmas is None:
+        return False
+    return any(datos[:len(f)] == f for f in firmas)
+
+
+# ── RATE LIMITING EXTENDIDO ──────────────────────────────────────────────────
+
+
+def _validar_email_institucional(email):
+    """
+    Valida que el email tenga un formato válido.
+    Puedes agregar dominios permitidos aquí si quieres restringir
+    solo a correos @educacion.edu.do u otros dominios institucionales.
+    """
+    import re
+    pattern = r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
+    if not re.match(pattern, email):
+        return False, "El correo no tiene un formato válido."
+    # Opcional: descomentar para restringir solo a dominios institucionales
+    # DOMINIOS_PERMITIDOS = {"educacion.edu.do", "minerd.edu.do"}
+    # dominio = email.split("@")[1].lower()
+    # if dominio not in DOMINIOS_PERMITIDOS:
+    #     return False, f"Solo se permiten correos institucionales (@educacion.edu.do)."
+    return True, ""
+
+
+# Tokens de recuperación — en BD para persistir reinicios del servidor
+
+
+def _guardar_recovery_token(token, user_id, expires):
+    with sqlite3.connect(DATABASE, timeout=10) as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO recovery_tokens (token, user_id, expires)
+            VALUES (?, ?, ?)
+        """, (token, user_id, expires.isoformat()))
+        conn.commit()
+
+
+def _get_recovery_token(token):
+    with sqlite3.connect(DATABASE, timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM recovery_tokens WHERE token=?", (token,)
+        ).fetchone()
+    if not row:
+        return None
+    expires = datetime.fromisoformat(row["expires"])
+    if expires < datetime.now():
+        _delete_recovery_token(token)
+        return None
+    return {"user_id": row["user_id"], "expires": expires}
+
+
+def _delete_recovery_token(token):
+    with sqlite3.connect(DATABASE, timeout=10) as conn:
+        conn.execute("DELETE FROM recovery_tokens WHERE token=?", (token,))
+        conn.commit()
+
+
+def _audit(accion, descripcion, entidad=None, entidad_id=None,
+           valor_anterior=None, valor_nuevo=None):
+    """
+    Registra una acción en el audit_log.
+    Se llama desde cualquier ruta que modifique datos críticos.
+    No lanza excepción si falla — el audit nunca debe bloquear la operación principal.
+    """
+    import json as _json
+    try:
+        u = get_usuario()
+        uid    = u.get("id") if u else None
+        nombre = u.get("nombre", "sistema") if u else "sistema"
+        ip     = request.remote_addr or "—"
+        with sqlite3.connect(DATABASE, timeout=5) as conn:
+            conn.execute(
+                """INSERT INTO audit_log
+                   (usuario_id, usuario_nombre, accion, entidad, entidad_id,
+                    descripcion, valor_anterior, valor_nuevo, ip)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    uid, nombre, accion, entidad, entidad_id,
+                    descripcion,
+                    _json.dumps(valor_anterior, ensure_ascii=False) if valor_anterior is not None else None,
+                    _json.dumps(valor_nuevo,    ensure_ascii=False) if valor_nuevo    is not None else None,
+                    ip,
+                )
+            )
+    except Exception as _ex:
+        logger.warning(f"[AUDIT] No se pudo registrar: {_ex}")
+
+
+def _enviar_email_raw(to_email: str, asunto: str, html: str) -> None:
+    """
+    Envía un email de alerta institucional (non-blocking — corre en thread propio).
+    Prefiere Resend API; cae a SMTP si no. Silencia cualquier error.
+    """
+    if not to_email or "@" not in to_email:
+        return
+
+    def _send():
+        resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+        smtp_user  = os.environ.get("SMTP_USER", "").strip()
+        smtp_pass  = os.environ.get("SMTP_PASS", "").strip()
+
+        if not resend_key and (not smtp_user or not smtp_pass):
+            return  # sin método configurado → silencioso
+
+        # ── Resend API ─────────────────────────────────────────────────────
+        if resend_key:
+            try:
+                import urllib.request as _req
+                from_addr = os.environ.get("RESEND_FROM", "Axula <noreply@resend.dev>").strip()
+                payload = _json.dumps({
+                    "from":    from_addr,
+                    "to":      [to_email],
+                    "subject": asunto,
+                    "html":    html,
+                }).encode()
+                req = _req.Request(
+                    "https://api.resend.com/emails", data=payload,
+                    headers={"Authorization": f"Bearer {resend_key}",
+                             "Content-Type": "application/json"},
+                    method="POST"
+                )
+                with _req.urlopen(req, timeout=10) as resp:
+                    result = _json.loads(resp.read())
+                if result.get("id"):
+                    logger.info(f"[EMAIL] Enviado a {to_email} (Resend id={result['id']})")
+                    return
+            except Exception as ex:
+                logger.warning(f"[EMAIL] Resend error → fallback SMTP: {ex}")
+
+        # ── SMTP ───────────────────────────────────────────────────────────
+        if smtp_user and smtp_pass:
+            try:
+                smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+                smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = asunto
+                msg["From"]    = f"Axula BJ <{smtp_user}>"
+                msg["To"]      = to_email
+                msg.attach(MIMEText(html, "html"))
+                try:
+                    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
+                        s.ehlo(); s.starttls(); s.ehlo()
+                        s.login(smtp_user, smtp_pass)
+                        s.sendmail(smtp_user, to_email, msg.as_string())
+                except Exception:
+                    with smtplib.SMTP_SSL(smtp_host, 465, timeout=15) as s:
+                        s.login(smtp_user, smtp_pass)
+                        s.sendmail(smtp_user, to_email, msg.as_string())
+                logger.info(f"[EMAIL] Enviado a {to_email} (SMTP)")
+            except Exception as ex:
+                logger.error(f"[EMAIL] SMTP error a {to_email}: {ex}")
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def _notificar(tipo, titulo, mensaje, url=None, destinatarios=None):
+    """
+    Crea una notificación para coordinadores y/o directora.
+    destinatarios: lista de user_ids, o None para todos los coordinadores/directora activos.
+    No bloquea si falla.
+    """
+    try:
+        with sqlite3.connect(DATABASE, timeout=5) as conn:
+            if destinatarios is None:
+                rows = conn.execute(
+                    """SELECT id, nombre, email FROM usuarios WHERE activo=1
+                       AND (rol IN ('directora','coordinador_general',
+                                    'coordinador_primer_ciclo','coordinador_segundo_ciclo'))"""
+                ).fetchall()
+                destinatarios_info = [(r[0], r[1], r[2]) for r in rows]
+            else:
+                rows = conn.execute(
+                    f"SELECT id, nombre, email FROM usuarios WHERE id IN ({','.join('?'*len(destinatarios))})",
+                    destinatarios
+                ).fetchall() if destinatarios else []
+                destinatarios_info = [(r[0], r[1], r[2]) for r in rows]
+
+            for dest_id, dest_nombre, dest_email in destinatarios_info:
+                conn.execute(
+                    """INSERT INTO notificaciones
+                       (destinatario_id, tipo, titulo, mensaje, url)
+                       VALUES (?,?,?,?,?)""",
+                    (dest_id, tipo, titulo, mensaje, url)
+                )
+                # Email opcional — no bloquea si falla o no está configurado
+                if dest_email:
+                    url_base = os.environ.get("APP_URL", "http://localhost:5000").rstrip("/")
+                    enlace   = f"{url_base}{url}" if url else url_base
+                    html = (
+                        f"<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;"
+                        f"padding:24px;background:#0d0d0d;color:#e0e0e0;border-radius:12px;'>"
+                        f"<h3 style='color:#c8f060;margin-bottom:4px;'>Axula</h3>"
+                        f"<p style='color:#888;font-size:11px;margin-bottom:16px;'>"
+                        f"C.E. Benito Juárez — Modalidad Artes</p>"
+                        f"<p>Hola <strong>{dest_nombre or 'usuario'}</strong>,</p>"
+                        f"<p style='margin:12px 0;'>{mensaje}</p>"
+                        f"<div style='text-align:center;margin:20px 0;'>"
+                        f"<a href='{enlace}' style='background:#c8f060;color:#000;padding:10px 24px;"
+                        f"border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;'>"
+                        f"Ver en Axula</a></div>"
+                        f"<hr style='border-color:#222;margin:16px 0;'>"
+                        f"<p style='font-size:10px;color:#555;'>Axula · C.E. Benito Juárez</p>"
+                        f"</div>"
+                    )
+                    _enviar_email_raw(dest_email, titulo, html)
+    except Exception as _ex:
+        logger.warning(f"[NOTIF] No se pudo crear notificación: {_ex}")
+
+
+def _enviar_bienvenida(nombre, username, password, email, rol):
+    """
+    Envía email de bienvenida con credenciales al nuevo usuario.
+    No falla si el email no está configurado — solo registra en log.
+    """
+    rol_label = ROLES_DISPONIBLES.get(rol, rol)
+    url_base  = os.environ.get("APP_URL", "http://localhost:5000").rstrip("/")
+
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px;
+                background:#0d0d0d;color:#e0e0e0;border-radius:12px;">
+      <h2 style="color:#c8f060;margin-bottom:4px;">Axula</h2>
+      <p style="color:#888;font-size:12px;margin-bottom:24px;">C.E. Benito Juárez — Modalidad Artes</p>
+
+      <p>Hola <strong style="color:#fff;">{nombre}</strong>,</p>
+      <p style="margin:12px 0;">Tu cuenta en Axula ha sido creada. Aquí están tus credenciales de acceso:</p>
+
+      <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin:16px 0;">
+        <div style="margin-bottom:8px;">
+          <span style="color:#888;font-size:12px;">Usuario</span><br>
+          <strong style="font-size:16px;color:#c8f060;font-family:monospace;">{username}</strong>
+        </div>
+        <div>
+          <span style="color:#888;font-size:12px;">Contraseña temporal</span><br>
+          <strong style="font-size:16px;color:#c8f060;font-family:monospace;">{password}</strong>
+        </div>
+      </div>
+
+      <p style="font-size:12px;color:#888;">Rol asignado: <strong style="color:#fff;">{rol_label}</strong></p>
+
+      <div style="text-align:center;margin:24px 0;">
+        <a href="{url_base}/login" style="background:#c8f060;color:#000;padding:12px 28px;
+           border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">
+          Iniciar sesión
+        </a>
+      </div>
+
+      <p style="font-size:11px;color:#555;margin-top:20px;">
+        Por seguridad, cambia tu contraseña en tu primera sesión.<br>
+        Si no esperabas este correo, contáctanos.
+      </p>
+      <hr style="border-color:#222;margin:20px 0;">
+      <p style="font-size:10px;color:#444;">Axula · C.E. Benito Juárez · República Dominicana</p>
+    </div>
+    """
+
+    resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+    smtp_user  = os.environ.get("SMTP_USER", "").strip()
+    smtp_pass  = os.environ.get("SMTP_PASS", "").strip()
+
+    # Si no hay ningún método configurado, solo registrar
+    if not resend_key and (not smtp_user or not smtp_pass):
+        logger.info(f"[BIENVENIDA] Sin método email — credenciales para {username}: usr={username} pwd={password}")
+        return
+
+    # Intentar Resend primero
+    if resend_key:
+        try:
+            import urllib.request as _req, json as _json
+            from_addr = os.environ.get("RESEND_FROM", "Axula <onboarding@resend.dev>").strip()
+            payload = _json.dumps({
+                "from":    from_addr,
+                "to":      [email],
+                "subject": f"Axula — Bienvenido/a, {nombre}",
+                "html":    html,
+            }).encode()
+            req = _req.Request(
+                "https://api.resend.com/emails", data=payload,
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with _req.urlopen(req, timeout=10) as resp:
+                result = _json.loads(resp.read())
+            if result.get("id"):
+                logger.info(f"[BIENVENIDA] Email enviado a {email} (Resend id={result['id']})")
+                return
+        except Exception as ex:
+            logger.error(f"[BIENVENIDA] Resend error: {ex}")
+
+    # Fallback SMTP
+    if smtp_user and smtp_pass:
+        try:
+            smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+            smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"Axula — Bienvenido/a, {nombre}"
+            msg["From"]    = f"Axula <{smtp_user}>"
+            msg["To"]      = email
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
+                s.ehlo(); s.starttls(); s.ehlo(); s.login(smtp_user, smtp_pass)
+                s.sendmail(smtp_user, email, msg.as_string())
+            logger.info(f"[BIENVENIDA] Email enviado a {email} (SMTP)")
+        except Exception as ex:
+            logger.error(f"[BIENVENIDA] SMTP error: {ex}")
+
+
+def _send_recovery_email(to_email, token, nombre):
+    """
+    Envía email de recuperación.
+    Método preferido: Resend API (RESEND_API_KEY en .env) — sin configuración SMTP.
+    Fallback: SMTP (SMTP_USER + SMTP_PASS en .env).
+    """
+    reset_url = f"{request.host_url.rstrip('/')}/reset-password/{token}"
+
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:32px;
+                background:#0d0d0d;color:#e0e0e0;border-radius:12px;">
+        <h2 style="color:#c8f060;margin-bottom:8px;">Axula</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:24px;">C.E. Benito Juárez — Modalidad Artes</p>
+        <p>Hola <strong style="color:#fff;">{nombre}</strong>,</p>
+        <p>Recibimos una solicitud para restablecer tu contraseña.</p>
+        <div style="text-align:center;margin:32px 0;">
+            <a href="{reset_url}" style="background:#c8f060;color:#000;padding:12px 28px;
+               border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
+               Restablecer contraseña
+            </a>
+        </div>
+        <p style="font-size:12px;color:#666;">
+            Enlace válido por <strong>30 minutos</strong>.
+            Si no solicitaste esto, ignora este correo.
+        </p>
+        <hr style="border-color:#222;margin:24px 0;">
+        <p style="font-size:11px;color:#555;">Axula · C.E. Benito Juárez · República Dominicana</p>
+    </div>
+    """
+
+    # ── Método 1: Resend API ─────────────────────────────────────────────────
+    resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if resend_key:
+        try:
+            import urllib.request as _req, json as _json
+            from_addr = os.environ.get("RESEND_FROM", "Axula <noreply@resend.dev>").strip()
+            payload = _json.dumps({
+                "from":    from_addr,
+                "to":      [to_email],
+                "subject": "Axula — Recuperar contraseña",
+                "html":    html,
+            }).encode()
+            req = _req.Request(
+                "https://api.resend.com/emails",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type":  "application/json",
+                },
+                method="POST"
+            )
+            with _req.urlopen(req, timeout=15) as resp:
+                result = _json.loads(resp.read())
+            if result.get("id"):
+                return True, ""
+            return False, f"Resend error: {result}"
+        except Exception as e:
+            logger.error(f"[Resend] Error: {e} — intentando SMTP...")
+
+    # ── Método 2: SMTP ───────────────────────────────────────────────────────
+    smtp_user = os.environ.get("SMTP_USER", "").strip()
+    smtp_pass = os.environ.get("SMTP_PASS", "").strip()
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+
+    if not smtp_user or not smtp_pass:
+        return False, (
+            "No hay método de envío configurado. "
+            "Opción A (recomendada): agrega RESEND_API_KEY en .env — "
+            "obtén tu clave gratis en resend.com. "
+            "Opción B: configura SMTP_USER y SMTP_PASS en .env."
+        )
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Axula — Recuperar contraseña"
+    msg["From"]    = f"Axula BJ <{smtp_user}>"
+    msg["To"]      = to_email
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            server.ehlo(); server.starttls(); server.ehlo()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, to_email, msg.as_string())
+        return True, ""
+    except Exception as e1:
+        try:
+            with smtplib.SMTP_SSL(smtp_host, 465, timeout=15) as server:
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_user, to_email, msg.as_string())
+            return True, ""
+        except Exception as e2:
+            return False, f"SMTP STARTTLS: {e1} | SSL: {e2}"
+
+
+def _validar_email_usuario(email):
+    """Valida que el email sea institucional si se provee."""
+    if not email:
+        return True, ""
+    import re
+    if not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', email):
+        return False, "El correo no tiene un formato válido."
+    dominio = email.split("@")[1].lower()
+    if dominio not in DOMINIOS_INSTITUCIONALES:
+        return False, f"Solo se permiten correos institucionales (@educacion.edu.do o @minerd.gob.do)."
+    return True, ""
+
+
+def limpiar_v(v):
+    if v is None:
+        return 0.0
+    try:
+        # Evitar importar pandas solo para isna
+        import math
+        if isinstance(v, float) and math.isnan(v):
+            return 0.0
+    except Exception:
+        pass
+    try:
+        return round(float(str(v).replace('%', '').replace(',', '.').strip()), 1)
+    except Exception:
+        return 0.0
+
+
+def calcular_proyeccion(actual, anterior):
+    """Proyección optimista/pesimista basada en la tendencia entre períodos."""
+    if anterior == 0:
+        return actual
+    tendencia = actual - anterior
+    proyectado = actual + (tendencia * 1.2)
+    return round(min(max(proyectado, 0), 100), 1)
+
+
+def calcular_promedio_modulos(p_foto, p_lv, p_diseno):
+    """
+    Calcula el promedio real de los 3 módulos técnicos multimedia.
+    Solo promedia los módulos que tienen datos (mayor a 0).
+    """
+    valores = [v for v in [p_foto, p_lv, p_diseno] if v > 0]
+    if not valores:
+        return 0.0
+    return round(sum(valores) / len(valores), 1)
+
+
+def analizar_perfil_maestro(d, historico=None):
+    # Promedios principales — nombres exactos del Excel
+    acad      = limpiar_v(d.get('Promedio_Academico', 0))
+    cond      = limpiar_v(d.get('Promedio_Conductual', 0))
+    emocional = limpiar_v(d.get('Promedio_Emocional', 0))
+    auto      = limpiar_v(d.get('Autoestima', 0))
+
+    # Módulos técnicos multimedia — nombres exactos del Excel
+    p_foto  = limpiar_v(d.get('Promedio_Fotografia', 0))
+    p_lv    = limpiar_v(d.get('Promedio_Lenguaje_Visual', 0))
+    p_diseno= limpiar_v(d.get('Promedio_Diseño', 0))
+
+    # Otros indicadores del Excel
+    asistencia  = limpiar_v(d.get('Asistencia', 0))
+    motivacion  = limpiar_v(d.get('Motivacion', 0))
+    indice_riesgo = limpiar_v(d.get('Indice_Riesgo', 0))
+    nivel_riesgo  = str(d.get('Nivel_Riesgo', '')).strip()
+
+    # Promedio real de módulos técnicos
+    prom_modulos = calcular_promedio_modulos(p_foto, p_lv, p_diseno)
+
+    # Proyección basada en historial
+    acad_anterior = historico['p_acad'] if historico else acad
+    proyeccion = calcular_proyeccion(acad, acad_anterior)
+
+    res = {
+        "es_caso_silencioso": False,
+        "nivel": "Estable",
+        "color": "#28a745",
+        "reporte": "",
+        "proyeccion": proyeccion,
+        "tendencia": "igual",
+        "prom_modulos": prom_modulos
+    }
+
+    if proyeccion > acad:
+        res["tendencia"] = "subiendo"
+    elif proyeccion < acad:
+        res["tendencia"] = "bajando"
+
+    # Alerta por proyección
+    if proyeccion < 70:
+        res["nivel"] = "ALERTA DE REPROBACIÓN"
+        res["color"] = "#fd7e14"
+        modulo_bajo = ""
+        if p_foto > 0 and p_foto < 70:
+            modulo_bajo += "Fotografía"
+        if p_lv > 0 and p_lv < 70:
+            modulo_bajo += (", " if modulo_bajo else "") + "Lenguaje Visual"
+        if p_diseno > 0 and p_diseno < 70:
+            modulo_bajo += (", " if modulo_bajo else "") + "Diseño"
+        detalle = f" Módulos críticos: {modulo_bajo}." if modulo_bajo else ""
+        res["reporte"] = (
+            f"PLANIFICACIÓN URGENTE: La tendencia indica un promedio final de {proyeccion}.{detalle} "
+            "Se requiere intervención inmediata."
+        )
+
+    # Erick's Rule — alto rendimiento + bienestar emocional bajo
+    if acad >= 80 and (auto < 70 or auto == 0):
+        res["es_caso_silencioso"] = True
+        res["nivel"] = "CASO SILENCIOSO"
+        res["color"] = "#17a2b8"
+        res["reporte"] = "Rendimiento alto con bienestar emocional crítico. Programar Entrevista de Bienestar."
+
+    return res
+
+
+def _is_api_request():
+    """True si el request viene de fetch/AJAX (espera JSON), False si es navegador."""
+    return (request.path.startswith("/api/") or
+            "application/json" in request.headers.get("Accept", "") or
+            request.headers.get("X-Requested-With") == "XMLHttpRequest")
+
+
+def _features_para_clustering(conn):
+    """Extrae features numéricas de estudiantes con datos suficientes."""
+    rows = conn.execute("""
+        SELECT id,
+               COALESCE(p_acad,0)         as acad,
+               COALESCE(p_cond,0)         as cond,
+               COALESCE(p_auto,0)         as auto_e,
+               COALESCE(p_emocional,0)    as emoc,
+               COALESCE(motivacion,0)     as motiv,
+               COALESCE(apoyo_familiar,0) as apoyo,
+               COALESCE(indice_riesgo,0)  as riesgo,
+               COALESCE(interrupciones,0) as interr,
+               COALESCE(conflictos,0)     as conflic,
+               COALESCE(falta_respeto,0)  as faltaR,
+               COALESCE(distraccion,0)    as distr,
+               COALESCE(prom_modulos,0)   as modulos
+        FROM estudiantes
+        WHERE (p_acad > 0 OR p_cond > 0 OR prom_modulos > 0
+               OR motivacion > 0 OR indice_riesgo > 0)
+    """).fetchall()
+    return rows
+
+
+def _buscar_estudiante_bd(conn, nombre, apellido, filtro_grado="", filtro_mencion=""):
+    """
+    Busca un estudiante por nombre/apellido con normalización unicode.
+    Cuatro intentos en cascada: exacto → solo nombre → sin filtro grado → fuzzy.
+    Retorna sqlite3.Row o None.
+    NOTA: Solo selecciona columnas que siempre existen (sin cedula por compatibilidad).
+    """
+    import unicodedata
+
+    def norm(s):
+        if not s: return ""
+        s = str(s).lower().strip()
+        return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("ascii")
+
+    # Registrar función norm en esta conexión
+    try:
+        conn.create_function("norm", 1, norm)
+    except Exception:
+        pass
+
+    nom1 = norm(nombre.split()[0] if nombre else "")
+    ape1 = norm(apellido.split()[0] if apellido else "")
+
+    # Detectar columnas disponibles (BD nueva puede no tener cedula aún)
+    cols_disponibles = {row[1] for row in conn.execute("PRAGMA table_info(estudiantes)").fetchall()}
+    safe_cols = "id, nombre, apellido, grado, curso"
+    if "cedula" in cols_disponibles:
+        safe_cols = "id, cedula, nombre, apellido, grado, curso"
+
+    extra_cond   = ""
+    extra_params = []
+    if filtro_grado:
+        extra_cond   += " AND upper(grado) LIKE upper(?)"
+        extra_params.append(f"%{filtro_grado}%")
+    if filtro_mencion:
+        extra_cond   += " AND upper(curso) LIKE upper(?)"
+        extra_params.append(f"%{filtro_mencion}%")
+
+    # Intento 1: nombre + apellido + filtros
+    est = conn.execute(
+        f"SELECT {safe_cols} FROM estudiantes "
+        f"WHERE norm(nombre) LIKE ? AND norm(apellido) LIKE ? {extra_cond} LIMIT 1",
+        [f"%{nom1}%", f"%{ape1}%"] + extra_params
+    ).fetchone()
+
+    # Intento 2: solo nombre + filtros
+    if not est and nom1:
+        est = conn.execute(
+            f"SELECT {safe_cols} FROM estudiantes "
+            f"WHERE norm(nombre) LIKE ? {extra_cond} LIMIT 1",
+            [f"%{nom1}%"] + extra_params
+        ).fetchone()
+
+    # Intento 3: nombre + apellido sin filtros
+    if not est and ape1:
+        est = conn.execute(
+            f"SELECT {safe_cols} FROM estudiantes "
+            "WHERE norm(nombre) LIKE ? AND norm(apellido) LIKE ? LIMIT 1",
+            [f"%{nom1}%", f"%{ape1}%"]
+        ).fetchone()
+
+    # Intento 4: fuzzy con fuzzywuzzy
+    if not est and nom1:
+        try:
+            from fuzzywuzzy import fuzz
+            candidatos = conn.execute(
+                f"SELECT {safe_cols} FROM estudiantes LIMIT 500"
+            ).fetchall()
+            full_buscado = f"{nom1} {ape1}".strip()
+            mejor = None
+            mejor_score = 0
+            for c in candidatos:
+                full_c = norm(f"{c['nombre']} {c['apellido']}")
+                score = fuzz.token_sort_ratio(full_buscado, full_c)
+                if score > mejor_score:
+                    mejor_score = score
+                    mejor = c
+            if mejor_score >= 82:
+                est = mejor
+        except Exception:
+            pass
+
+    return est
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CARGA DIRECTA — Registro de Calificaciones Oficial (formato MINERD)
+# Lee múltiples hojas, detecta profesor, carga notas+asistencia
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _get_profesor():
+    """Retorna dict del usuario profesor autenticado o None."""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    try:
+        with sqlite3.connect(DATABASE, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            u = conn.execute(
+                "SELECT * FROM usuarios WHERE id=? AND activo=1", (uid,)
+            ).fetchone()
+        if not u:
+            logger.info(f"[_get_profesor] uid={uid} not found or inactive in DB")
+        return dict(u) if u else None
+    except Exception as ex:
+        logger.error(f"[_get_profesor] Error: {ex}")
+        return None
+
+
+def _resolver_alcance_profesor(profesor):
+    """
+    Resuelve el conjunto real de grados y menciones que cubre un profesor
+    según las reglas del C.E. Benito Juárez:
+
+    - Profesor de materia TÉCNICA (tipo_docencia='tecnica'):
+        Cubre todos los grados de SU ciclo para SU(S) mención(es).
+        Ej: prof. Teatro → 4to,5to,6to en mención TEATRO.
+
+    - Profesor de materia BÁSICA/ACADÉMICA (tipo_docencia='basica'):
+        Cubre todos los grados de su ciclo en TODAS las menciones.
+        Ej: prof. Matemática segundo ciclo → 4to,5to,6to × MULTIMEDIA,TEATRO,MÚSICA,ARTES VISUALES,DANZA
+
+    - Profesor de PRIMER CICLO (ciclo='primer_ciclo'):
+        Cubre 1ro,2do,3ro en todas las secciones (mención irrelevante).
+
+    - Tipo 'ambas': cubre como básica (todas las menciones de su ciclo).
+
+    Retorna dict con:
+      grados   : list[str]  — ej. ['4to','5to','6to']
+      menciones: list[str]  — ej. ['MULTIMEDIA','TEATRO'] o [] (primer ciclo)
+      filtro_mencion: bool  — si True hay que filtrar por mención al buscar estudiantes
+    """
+    ciclo        = (profesor.get("ciclo") or "").strip().lower()
+    tipo_doc     = (profesor.get("tipo_docencia") or "basica").strip().lower()
+    grado_raw    = (profesor.get("grado") or "").strip()
+    mencion_raw  = (profesor.get("mencion") or "").strip()
+
+    # Catálogo canónico: slug del form → valor que matchea estudiantes.curso
+    _SLUG_TO_MENCION = {
+        "multimedia":    "MULTIMEDIA",
+        "artes_visuales": "ARTES VISUALES",
+        "artes visuales": "ARTES VISUALES",
+        "musica":        "MÚSICA",
+        "música":        "MÚSICA",
+        "teatro":        "TEATRO",
+        "danza":         "DANZA",
+    }
+
+    def _normalizar_mencion(raw):
+        """Convierte cualquier variante de slug a la forma canónica de estudiantes.curso."""
+        import unicodedata as _ud
+        s = raw.strip().lower()
+        # Quitar emojis/caracteres no-ASCII del inicio
+        s = "".join(c for c in s if c.isalpha() or c in " _")
+        s = s.strip().replace("  ", " ")
+        # Intentar primero lookup directo
+        if s in _SLUG_TO_MENCION:
+            return _SLUG_TO_MENCION[s]
+        # Lookup sin acento (musica/música → MÚSICA)
+        s_ascii = _ud.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+        for key, val in _SLUG_TO_MENCION.items():
+            key_ascii = _ud.normalize("NFKD", key).encode("ascii", "ignore").decode("ascii")
+            if s_ascii == key_ascii:
+                return val
+        # Fallback: upper tal cual (mejor que devolver basura)
+        return raw.strip().upper()
+
+    # ── Grados según ciclo ───────────────────────────────────────────
+    SENTINEL_INVALIDOS = {"todos", "all", ""}
+    if ciclo == "primer_ciclo":
+        grados = ["1ro", "2do", "3ro"]
+    elif ciclo == "segundo_ciclo":
+        grados = ["4to", "5to", "6to"]
+    else:
+        # Inferir del campo grado si no hay ciclo explícito
+        # Filtrar sentinel 'todos' y vacíos — no son grados reales
+        grados_raw = [g.strip() for g in grado_raw.split(",")
+                      if g.strip() and g.strip().lower() not in SENTINEL_INVALIDOS]
+        if grados_raw:
+            primer = {"1ro","2do","3ro","1ero","3er"}
+            segundo = {"4to","5to","6to"}
+            if any(g.lower() in primer for g in grados_raw):
+                grados = ["1ro","2do","3ro"]
+            elif any(g.lower() in segundo for g in grados_raw):
+                grados = grados_raw  # preservar grados específicos (4to, 5to, etc.)
+            else:
+                grados = grados_raw
+        else:
+            grados = ["4to","5to","6to"]  # fallback segundo ciclo
+
+    # ── Menciones según tipo de docencia ────────────────────────────
+    MENCIONES_2DO = ["MULTIMEDIA","TEATRO","MÚSICA","ARTES VISUALES","DANZA"]
+    if ciclo == "primer_ciclo":
+        menciones       = []
+        filtro_mencion  = False
+    elif tipo_doc == "tecnica":
+        # Solo las menciones asignadas al prof — normalizadas al formato de curso
+        menciones = [_normalizar_mencion(m) for m in mencion_raw.split(",") if m.strip()]
+        if not menciones:
+            menciones = ["MULTIMEDIA"]  # fallback
+        filtro_mencion = True
+    else:
+        # basica o ambas → todas las menciones del segundo ciclo
+        menciones      = MENCIONES_2DO
+        filtro_mencion = False   # no filtrar por mención en la query
+
+    return {"grados": grados, "menciones": menciones, "filtro_mencion": filtro_mencion}
+
+
+def resolver_plan_grado_mencion_profesor(prof):
+    """
+    Plan de materias por grado + mención para un profesor — mismo cálculo
+    que usa Pase de Lista (routes/profesor.py::portal_profesor) para su
+    selector Grado/Modalidad/Materia. Extraído aquí para que
+    routes/casos.py (Cuaderno Anecdótico) ofrezca la misma composición sin
+    duplicar la lógica de dos formularios que evolucionan por separado —
+    mismo tipo de bug que ya pasó antes con copias fosilizadas de un form.
+
+    Retorna dict:
+      plan_por_grado_mencion : {grado: {mencion: [[materia,horas],...]}}
+      grados_prof             : list[str]
+      menciones_prof          : list[str]
+      filtro_men               : bool
+
+    Filtra las materias a las asignadas en el perfil del profesor
+    (asignaturas/materia, separadas por '|', match por substring o difuso
+    ≥0.75); si ninguna coincide en ningún grado+mención cae al plan
+    completo sin filtrar, para no dejar al profesor sin nada que elegir.
+    """
+    from core.constants import PLAN_ARTES, PLAN_MULTIMEDIA
+    import unicodedata as _ud
+    from difflib import SequenceMatcher as _SM
+
+    alcance        = _resolver_alcance_profesor(prof)
+    grados_prof    = alcance["grados"]
+    menciones_prof = alcance["menciones"]
+    filtro_men     = alcance["filtro_mencion"]
+    mencion_list   = menciones_prof if (filtro_men and menciones_prof) else ["MULTIMEDIA"]
+    rol_norm       = _normalizar_rol(prof.get("rol", ""))
+
+    def _norm_asig(s):
+        s = (s or "").strip().lower()
+        return _ud.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+
+    asigs_raw  = (prof.get("asignaturas") or prof.get("materia") or "").strip()
+    asigs_prof = [_norm_asig(a) for a in asigs_raw.split("|") if a.strip()]
+
+    def _coincide(nombre_plan):
+        n = _norm_asig(nombre_plan)
+        if any(ap in n or n in ap for ap in asigs_prof):
+            return True
+        return any(_SM(None, ap, n).ratio() >= 0.75 for ap in asigs_prof)
+
+    def _construir(aplicar_filtro):
+        ppgm = {}
+        for gk in (grados_prof if grados_prof else ["4to"]):
+            ppgm[gk] = {}
+            for mk in mencion_list:
+                plan_mencion = PLAN_ARTES.get(mk.upper(), PLAN_MULTIMEDIA)
+                materias_gkm = plan_mencion.get(gk.lower(), plan_mencion.get("4to", []))
+                if aplicar_filtro and asigs_prof and rol_norm == "profesor":
+                    materias_gkm = [(a, h) for a, h in materias_gkm if _coincide(a)]
+                ppgm[gk][mk] = [[a, h] for a, h in materias_gkm]
+        return ppgm
+
+    plan_por_grado_mencion = _construir(aplicar_filtro=True)
+    tiene_algo = any(
+        materias for por_mencion in plan_por_grado_mencion.values()
+        for materias in por_mencion.values()
+    )
+    if asigs_prof and rol_norm == "profesor" and not tiene_algo:
+        plan_por_grado_mencion = _construir(aplicar_filtro=False)
+
+    return {
+        "plan_por_grado_mencion": plan_por_grado_mencion,
+        "grados_prof": grados_prof,
+        "menciones_prof": menciones_prof,
+        "filtro_men": filtro_men,
+    }
+
+
+def _validar_materia_profesor(nombre_materia, nombre_curso, profesor):
+    """
+    Valida si una materia/curso corresponde al perfil asignado del profesor.
+    Con la nueva lógica multi-grado, acepta cualquier grado del ciclo del profesor.
+    Retorna (ok: bool, mensaje: str)
+    """
+    if not profesor or _normalizar_rol(profesor.get("rol", "")) in ROLES_COORD:
+        return True, ""
+
+    alcance      = _resolver_alcance_profesor(profesor)
+    grados       = [g.lower() for g in alcance["grados"]]
+    menciones    = [m.lower() for m in alcance["menciones"]]
+    prof_asigs   = [a.strip().lower() for a in (profesor.get("asignaturas") or "").split("|") if a.strip()]
+    curso_lower  = (nombre_curso or "").lower()
+    materia_lower = (nombre_materia or "").lower()
+
+    # Verificar grado — cualquiera de los grados del alcance
+    if grados and not any(g in curso_lower for g in grados):
+        return False, (
+            f"Este archivo no corresponde a ningún grado de tu ciclo asignado "
+            f"({', '.join(g.upper() for g in grados)}). "
+            f"El archivo indica el curso '{nombre_curso}'."
+        )
+
+    # Verificar mención — solo si el profesor es de materia técnica
+    if alcance["filtro_mencion"] and menciones:
+        if not any(m in curso_lower for m in menciones):
+            return False, (
+                f"La mención del archivo ('{nombre_curso}') no corresponde a tu mención asignada "
+                f"({', '.join(m.upper() for m in menciones)})."
+            )
+
+    # Verificar materia
+    if prof_asigs:
+        match = any(asig in materia_lower or materia_lower in asig for asig in prof_asigs)
+        if not match:
+            return False, (
+                f"La materia '{nombre_materia}' no está en tu lista de asignaturas "
+                f"({profesor.get('asignaturas')}). Contacta al coordinador si hay un error."
+            )
+
+    return True, ""
+
+
+def _notificar_psicologa(conn, estudiante_id, origen_tipo, origen_id, titulo, cuerpo):
+    """
+    Envía una notificación a la psicóloga del ciclo correspondiente al estudiante.
+    Si no hay psicóloga asignada, notifica al coordinador del ciclo.
+    Siempre inserta en la tabla notificaciones.
+    """
+    # Determinar ciclo del estudiante
+    est = conn.execute(
+        "SELECT ciclo, grado FROM estudiantes WHERE id=?", (estudiante_id,)
+    ).fetchone()
+    ciclo = (est["ciclo"] if est else None) or "segundo_ciclo"
+
+    # Buscar psicóloga del ciclo
+    rol_psico = "psicologa_primer_ciclo" if ciclo == "primer_ciclo" else "psicologa_segundo_ciclo"
+    rol_coord = "coordinador_primer_ciclo" if ciclo == "primer_ciclo" else "coordinador_segundo_ciclo"
+
+    destinatarios = conn.execute(
+        "SELECT id, nombre, email FROM usuarios WHERE rol IN (?,?,?) AND activo=1",
+        (rol_psico, rol_coord, "coordinador_general")
+    ).fetchall()
+
+    for dest in destinatarios:
+        conn.execute("""
+            INSERT INTO notificaciones
+                (destinatario_id, origen_tipo, origen_id, estudiante_id, titulo, cuerpo)
+            VALUES (?,?,?,?,?,?)
+        """, (dest["id"], origen_tipo, origen_id, estudiante_id, titulo, cuerpo))
+        # Email opcional — no bloquea
+        if dest["email"]:
+            url_base = os.environ.get("APP_URL", "http://localhost:5000").rstrip("/")
+            html = (
+                f"<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;"
+                f"padding:24px;background:#0d0d0d;color:#e0e0e0;border-radius:12px;'>"
+                f"<h3 style='color:#c8f060;margin:0 0 4px;'>Axula</h3>"
+                f"<p style='color:#888;font-size:11px;margin:0 0 16px;'>"
+                f"C.E. Benito Juárez — Modalidad Artes</p>"
+                f"<p>Hola <strong>{dest['nombre'] or 'usuario'}</strong>,</p>"
+                f"<p style='margin:12px 0;background:#1a1a1a;padding:12px;border-radius:8px;"
+                f"border-left:3px solid #c8f060;'>{cuerpo}</p>"
+                f"<div style='text-align:center;margin:20px 0;'>"
+                f"<a href='{url_base}/perfil/{estudiante_id}' style='background:#c8f060;color:#000;"
+                f"padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:700;"
+                f"font-size:13px;'>Ver expediente</a></div>"
+                f"<hr style='border-color:#222;margin:16px 0;'>"
+                f"<p style='font-size:10px;color:#555;'>Axula · C.E. Benito Juárez</p>"
+                f"</div>"
+            )
+            _enviar_email_raw(dest["email"], titulo, html)
+
+
+def _verificar_ausencias_semana(conn, estudiante_id, fecha_str):
+    """
+    Verifica si un estudiante acumuló 3+ ausencias en la semana actual.
+    Si es así y no se ha enviado alerta para esa semana, crea la notificación
+    y registra en ausencias_semanales.
+    """
+    from datetime import datetime, timedelta
+    try:
+        fecha = datetime.strptime(fecha_str, "%Y-%m-%d")
+    except Exception:
+        return
+
+    # Calcular semana ISO (ej: "2026-W12")
+    year, week, _ = fecha.isocalendar()
+    semana_iso = f"{year}-W{week:02d}"
+
+    # Inicio y fin de la semana
+    inicio_semana = fecha - timedelta(days=fecha.weekday())
+    fin_semana    = inicio_semana + timedelta(days=6)
+    ini_str = inicio_semana.strftime("%Y-%m-%d")
+    fin_str = fin_semana.strftime("%Y-%m-%d")
+
+    # Contar ausencias en la semana (ausente + tardanza cuenta como 0.5)
+    row = conn.execute("""
+        SELECT
+            SUM(CASE WHEN estado IN ('ausente','A') THEN 1 ELSE 0 END) as ausentes,
+            SUM(CASE WHEN estado IN ('tardanza','T') THEN 0.5 ELSE 0 END) as tardanzas,
+            GROUP_CONCAT(DISTINCT materia) as materias
+        FROM asistencia
+        WHERE estudiante_id=? AND fecha BETWEEN ? AND ?
+    """, (estudiante_id, ini_str, fin_str)).fetchone()
+
+    if not row:
+        return
+
+    total = (row["ausentes"] or 0) + (row["tardanzas"] or 0)
+
+    # Verificar si ya existe registro para esta semana
+    existente = conn.execute(
+        "SELECT id, alerta_enviada, total_ausencias FROM ausencias_semanales WHERE estudiante_id=? AND semana=?",
+        (estudiante_id, semana_iso)
+    ).fetchone()
+
+    # Actualizar o insertar el registro semanal
+    if existente:
+        conn.execute(
+            "UPDATE ausencias_semanales SET total_ausencias=?, materias=?, actualizado_en=datetime('now') WHERE id=?",
+            (total, row["materias"] or "", existente["id"])
+        )
+    else:
+        conn.execute(
+            "INSERT INTO ausencias_semanales (estudiante_id, semana, total_ausencias, materias) VALUES (?,?,?,?)",
+            (estudiante_id, semana_iso, total, row["materias"] or "")
+        )
+
+    # Si tiene 3+ ausencias Y no se ha enviado alerta esta semana → alertar
+    ya_alertado = existente and existente["alerta_enviada"]
+    if total >= 3 and not ya_alertado:
+        est = conn.execute(
+            "SELECT nombre, apellido, grado, curso FROM estudiantes WHERE id=?",
+            (estudiante_id,)
+        ).fetchone()
+        nombre_est = f"{est['nombre']} {est['apellido']}" if est else f"Estudiante #{estudiante_id}"
+        grado_est  = f"{est['grado'] or ''} {est['curso'] or ''}".strip() if est else ""
+
+        titulo = f"⚠️ Alerta de Asistencia — {nombre_est}"
+        cuerpo = (
+            f"{nombre_est} ({grado_est}) acumuló {int(total)} ausencia(s)/tardanza(s) "
+            f"en la semana del {ini_str} al {fin_str}. "
+            f"Materias afectadas: {row['materias'] or 'varias'}."
+        )
+        _notificar_psicologa(conn, estudiante_id, "asistencia", None, titulo, cuerpo)
+
+        # Marcar alerta como enviada
+        conn.execute(
+            "UPDATE ausencias_semanales SET alerta_enviada=1 WHERE estudiante_id=? AND semana=?",
+            (estudiante_id, semana_iso)
+        )
+
+        # Crear caso automáticamente si no existe uno abierto de asistencia esta semana
+        caso_abierto = conn.execute("""
+            SELECT id FROM casos
+            WHERE estudiante_id=? AND tipo='asistencia' AND estado NOT IN ('Resuelto','Cerrado')
+        """, (estudiante_id,)).fetchone()
+
+        if not caso_abierto:
+            conn.execute("""
+                INSERT INTO casos
+                    (estudiante_id, abierto_por, tipo, titulo, descripcion, origen_tipo)
+                VALUES (?,1,'asistencia',?,?,'asistencia')
+            """, (
+                estudiante_id,
+                f"Alerta automática — Ausencias semana {semana_iso}",
+                cuerpo
+            ))
+
+
+def _notificar_directora_coordinador(conn, estudiante_id, origen_tipo, origen_id, titulo, cuerpo):
+    """
+    Notifica a directora y coordinador del ciclo (NO a psicóloga).
+    Usado para reportes pedagógicos del profesor.
+    """
+    est = conn.execute(
+        "SELECT ciclo FROM estudiantes WHERE id=?", (estudiante_id,)
+    ).fetchone()
+    ciclo = (est["ciclo"] if est else None) or "segundo_ciclo"
+    rol_coord = "coordinador_primer_ciclo" if ciclo == "primer_ciclo" else "coordinador_segundo_ciclo"
+
+    destinatarios = conn.execute(
+        "SELECT id, nombre, email FROM usuarios WHERE rol IN (?,?,?) AND activo=1",
+        (rol_coord, "coordinador_general", "directora")
+    ).fetchall()
+
+    for dest in destinatarios:
+        conn.execute("""
+            INSERT INTO notificaciones
+                (destinatario_id, origen_tipo, origen_id, estudiante_id, titulo, cuerpo)
+            VALUES (?,?,?,?,?,?)
+        """, (dest["id"], origen_tipo, origen_id, estudiante_id, titulo, cuerpo))
+        if dest["email"]:
+            url_base = os.environ.get("APP_URL", "http://localhost:5000").rstrip("/")
+            html = (
+                f"<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;"
+                f"padding:24px;background:#0d0d0d;color:#e0e0e0;border-radius:12px;'>"
+                f"<h3 style='color:#378ADD;margin:0 0 4px;'>Axula</h3>"
+                f"<p style='color:#888;font-size:11px;margin:0 0 16px;'>"
+                f"C.E. Benito Juárez — Modalidad Artes</p>"
+                f"<p>Hola <strong>{dest['nombre'] or 'usuario'}</strong>,</p>"
+                f"<p style='margin:12px 0;background:#1a1a1a;padding:12px;border-radius:8px;"
+                f"border-left:3px solid #378ADD;'>{cuerpo}</p>"
+                f"<div style='text-align:center;margin:20px 0;'>"
+                f"<a href='{url_base}/perfil/{estudiante_id}' style='background:#378ADD;color:#fff;"
+                f"padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:700;"
+                f"font-size:13px;'>Ver expediente</a></div>"
+                f"<hr style='border-color:#222;margin:16px 0;'>"
+                f"<p style='font-size:10px;color:#555;'>Axula · C.E. Benito Juárez</p>"
+                f"</div>"
+            )
+            _enviar_email_raw(dest["email"], titulo, html)
+
+
+def _notificar_reporte_nuevo(conn, estudiante_id, reporte_id, tipo_reporte, severidad, titulo_rep, reportado_por, canal="pedagogico"):
+    """
+    Enruta notificaciones según el canal del reporte:
+    - 'pedagogico' → directora + coordinador (el profesor maneja en su aula)
+    - 'conductual'  → directora + coordinador + psicóloga (requiere orientación)
+    """
+    est = conn.execute(
+        "SELECT nombre, apellido FROM estudiantes WHERE id=?", (estudiante_id,)
+    ).fetchone()
+    nombre_est = f"{est['nombre']} {est['apellido']}" if est else f"Estudiante #{estudiante_id}"
+
+    if canal == "conductual":
+        titulo = f"🚨 Reporte conductual — {nombre_est}"
+        cuerpo = (
+            f"El/la docente {reportado_por} registró un reporte de conducta "
+            f"({tipo_reporte}, severidad {severidad}): \"{titulo_rep or 'Sin título'}\". "
+            f"Requiere seguimiento de orientación."
+        )
+        _notificar_psicologa(conn, estudiante_id, "reporte", reporte_id, titulo, cuerpo)
+    else:
+        titulo = f"📋 Observación pedagógica — {nombre_est}"
+        cuerpo = (
+            f"El/la docente {reportado_por} registró una observación pedagógica "
+            f"({tipo_reporte}, severidad {severidad}): \"{titulo_rep or 'Sin título'}\"."
+        )
+        _notificar_directora_coordinador(conn, estudiante_id, "reporte", reporte_id, titulo, cuerpo)
+
+
+def _anio_escolar_actual():
+    """Retorna el año escolar activo (o el más recientemente cerrado).
+
+    Prioridad:
+      1. configuracion_centro.anio_escolar_activo — lo que el coordinador configuró
+      2. Cálculo automático por fecha, según calendario MINERD RD:
+         - Año escolar: primer lunes de agosto → última semana de junio
+         - Julio (mes 7): período de transición — el año anterior TERMINÓ en junio,
+           el nuevo NO ha comenzado aún (empieza en agosto).
+           → Se devuelve el año que acaba de cerrar (ej: julio 2026 → "2025-2026")
+         - Agosto–diciembre (meses 8-12): nuevo año en curso
+           → f"{año}-{año+1}"
+         - Enero–junio (meses 1-6): mitad del año en curso
+           → f"{año-1}-{año}"
+
+    Fuente normativa: Calendario Escolar MINERD / Resolución 02-2022 y posteriores.
+    """
+    try:
+        from core.constants import DATABASE as _DB
+        import sqlite3 as _sqlite3
+        with _sqlite3.connect(_DB, timeout=3) as _c:
+            _row = _c.execute(
+                "SELECT anio_escolar_activo FROM configuracion_centro WHERE id=1"
+            ).fetchone()
+            if _row and _row[0]:
+                return _row[0]
+    except Exception:
+        pass
+    # Fallback: cálculo automático por fecha
+    from datetime import date
+    hoy = date.today()
+    if hoy.month >= 8:
+        # Nuevo año escolar empezó en agosto
+        return f"{hoy.year}-{hoy.year + 1}"
+    else:
+        # Meses 1-7: pertenecen al año escolar que inició el agosto ANTERIOR
+        # (julio es transición: el año terminó en junio, pero los datos siguen siendo del año anterior)
+        return f"{hoy.year - 1}-{hoy.year}"
+
+
+def _anio_escolar_proximo():
+    """Retorna el año escolar siguiente al actual.
+    Usado para pre-rellenar el campo 'Nuevo año' en el panel de Cierre.
+
+    En julio 2026: actual = "2025-2026" → próximo = "2026-2027"
+    En agosto 2026: actual = "2026-2027" → próximo = "2027-2028"
+    """
+    actual = _anio_escolar_actual()
+    try:
+        fin = int(actual.split("-")[1])
+        return f"{fin}-{fin + 1}"
+    except Exception:
+        from datetime import date
+        a = date.today().year
+        return f"{a}-{a + 1}"
+
+
+def _periodo_actual():
+    """Detecta el período activo por fecha.
+    P1: agosto–octubre
+    P2: noviembre–enero
+    P3: febrero–abril
+    P4: mayo–julio
+    """
+    from datetime import date
+    m = date.today().month
+    if m in (8, 9, 10):     return "P1"
+    if m in (11, 12, 1):    return "P2"
+    if m in (2, 3, 4):      return "P3"
+    return "P4"  # 5, 6, 7
+
+
+def _periodo_de_fecha(fecha_str):
+    """Igual que _periodo_actual() pero a partir de una fecha dada (YYYY-MM-DD)
+    en vez de la fecha de hoy — el docente puede registrar una conducta de un
+    día anterior."""
+    from datetime import date as _date
+    try:
+        m = int(fecha_str.split("-")[1])
+    except Exception:
+        m = _date.today().month
+    if m in (8, 9, 10):     return "P1"
+    if m in (11, 12, 1):    return "P2"
+    if m in (2, 3, 4):      return "P3"
+    return "P4"
+
+
+def _crear_caso_desde_conducta(conn, estudiante_id, docente_id, registro_id, titulo,
+                                descripcion, materia, grado, mencion, seccion,
+                                fecha_incidente, nivel_escala):
+    """Auto-genera un caso formal en /casos a partir de una escalada del
+    sistema de Conducta (3 Outs en el período, o una falta muy grave directa).
+    Mismo patrón de inserción que routes/casos.py::crear_caso()."""
+    conn.execute("""
+        INSERT INTO casos (estudiante_id, abierto_por, tipo, titulo, descripcion,
+                           estado, nivel_escala, origen_tipo, origen_id,
+                           materia, grado, mencion, seccion, fecha_incidente)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (estudiante_id, docente_id, "conducta", titulo, descripcion,
+          "Abierto", nivel_escala, "conducta_registro", registro_id,
+          materia, grado, mencion, seccion, fecha_incidente))
+    conn.commit()
+    caso_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    try:
+        est = conn.execute("SELECT ciclo, nombre, apellido FROM estudiantes WHERE id=?",
+                            (estudiante_id,)).fetchone()
+        ciclo_est = (est["ciclo"] if est else "") or "segundo_ciclo"
+        rol_coord = ("coordinador_segundo_ciclo" if ciclo_est == "segundo_ciclo"
+                     else "coordinador_primer_ciclo")
+        coord = conn.execute(
+            "SELECT id FROM usuarios WHERE rol=? AND activo=1 LIMIT 1", (rol_coord,)
+        ).fetchone()
+        if coord:
+            nombre_est = f"{est['nombre']} {est['apellido']}".strip() if est else ""
+            _crear_notificacion(
+                conn, coord["id"], "caso", caso_id, estudiante_id,
+                f"⚾ Caso de conducta generado — {nombre_est}",
+                f"{titulo}. {descripcion}"
+            )
+            conn.commit()
+    except Exception as _e:
+        logger.warning(f"[conducta] No se pudo notificar a coordinación: {_e}")
+
+    return caso_id
+
+
+def registrar_conducta(conn, estudiante_id, docente_id, nivel, conducta_key,
+                        fecha_incidente, materia=None, grado=None, mencion=None,
+                        seccion=None, descripcion=None, lote_id=None):
+    """Registra un evento de conducta (strike/out/falta grave o muy grave) y
+    aplica la mecánica de beisbol: 3 Strikes (leve) = 1 Out, 1 falta grave =
+    1 Out directo, 3 Outs en el período = Reporte automático a coordinación.
+    Una falta muy grave (Art.21 MINERD — lista cerrada) salta todo el conteo
+    y genera el caso de inmediato.
+
+    Retorna un dict con el conteo resultante y, si aplica, el 'trigger'
+    ('out'|'reporte'|'muy_grave') y el caso_id generado.
+    """
+    from core.constants import CONDUCTA_CATALOGO
+
+    if nivel not in ("leve", "grave", "muy_grave"):
+        raise ValueError("nivel de conducta inválido")
+
+    anio    = _anio_escolar_actual()
+    periodo = _periodo_de_fecha(fecha_incidente)
+    conducta_label = dict(CONDUCTA_CATALOGO.get(nivel, [])).get(conducta_key, conducta_key)
+
+    conn.execute("""
+        INSERT INTO conducta_registro
+            (estudiante_id, docente_id, nivel, conducta, descripcion, fecha_incidente,
+             periodo, anio_escolar, materia, grado, mencion, seccion, lote_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (estudiante_id, docente_id, nivel, conducta_key, descripcion, fecha_incidente,
+          periodo, anio, materia, grado, mencion, seccion, lote_id))
+    conn.commit()
+    registro_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    est = conn.execute("SELECT nombre, apellido FROM estudiantes WHERE id=?",
+                        (estudiante_id,)).fetchone()
+    nombre_est = f"{est['nombre']} {est['apellido']}".strip() if est else "El/la estudiante"
+
+    resultado = {
+        "registro_id": registro_id, "nivel": nivel, "conducta_label": conducta_label,
+        "periodo": periodo, "trigger": None, "caso_id": None,
+    }
+
+    if nivel == "muy_grave":
+        caso_id = _crear_caso_desde_conducta(
+            conn, estudiante_id, docente_id, registro_id,
+            titulo=f"Falta muy grave — {conducta_label}",
+            descripcion=(descripcion or
+                f"{nombre_est} incurrió en una falta muy grave ({conducta_label}) el "
+                f"{fecha_incidente}. Según el Art.21/35 de las Normas MINERD de "
+                f"Convivencia (Ley 136-03), se remite de inmediato al Equipo de "
+                f"Gestión para sanción y reunión con padres/tutores."),
+            materia=materia, grado=grado, mencion=mencion, seccion=seccion,
+            fecha_incidente=fecha_incidente, nivel_escala=3,
+        )
+        conn.execute("UPDATE conducta_registro SET caso_id=? WHERE id=?", (caso_id, registro_id))
+        conn.commit()
+        resultado["trigger"] = "muy_grave"
+        resultado["caso_id"] = caso_id
+        return resultado
+
+    # Tally del período actual (leve/grave) — 3 leves consumidas = 1 out,
+    # cada grave = 1 out directo.
+    row = conn.execute("""
+        SELECT
+          SUM(CASE WHEN nivel='leve'  THEN 1 ELSE 0 END) AS n_leves,
+          SUM(CASE WHEN nivel='grave' THEN 1 ELSE 0 END) AS n_graves
+        FROM conducta_registro
+        WHERE estudiante_id=? AND anio_escolar=? AND periodo=? AND nivel IN ('leve','grave')
+    """, (estudiante_id, anio, periodo)).fetchone()
+    n_leves  = row["n_leves"]  or 0
+    n_graves = row["n_graves"] or 0
+    outs_de_leves = n_leves // 3
+    total_outs    = outs_de_leves + n_graves
+
+    resultado["strikes_leves_total"] = n_leves
+    if nivel == "leve":
+        resto = n_leves % 3
+        resultado["strikes_en_ciclo"] = resto or 3  # al completar el 3ro, mostrar "3" no "0"
+    resultado["outs_total"] = total_outs
+
+    just_completed_out = (nivel == "leve" and n_leves % 3 == 0) or (nivel == "grave")
+    if just_completed_out:
+        resultado["trigger"] = "out"
+        if total_outs % 3 == 0:
+            caso_id = _crear_caso_desde_conducta(
+                conn, estudiante_id, docente_id, registro_id,
+                titulo=f"3 Outs acumulados — Período {periodo}",
+                descripcion=(
+                    f"{nombre_est} acumuló {total_outs} Outs en el período {periodo} "
+                    f"({anio}) por conducta reiterada en el aula. Se remite a "
+                    f"coordinación para aplicar sanción y coordinar reunión con "
+                    f"padres/tutores."),
+                materia=materia, grado=grado, mencion=mencion, seccion=seccion,
+                fecha_incidente=fecha_incidente, nivel_escala=2,
+            )
+            conn.execute("UPDATE conducta_registro SET caso_id=? WHERE id=?", (caso_id, registro_id))
+            conn.commit()
+            resultado["trigger"] = "reporte"
+            resultado["caso_id"] = caso_id
+
+    return resultado
+
+
+def _nota_estado(nota):
+    """
+    Clasifica la nota según Ordenanza 04-2023 MINERD (Art.28).
+    D  89-100 Destacado
+    S  80-88  Satisfactorio
+    B  70-79  Básico         ← mínimo aprobatorio
+    EP 60-69  En proceso     → Recuperación Pedagógica obligatoria
+    I  0-59   Insuficiente   → Evaluación Completiva / Extraordinaria
+    """
+    if nota is None: return "sin_nota"
+    if nota >= 89:   return "destacado"
+    if nota >= 80:   return "satisfactorio"
+    if nota >= 70:   return "basico"
+    if nota >= 60:   return "en_proceso"
+    return "insuficiente"
+
+
+def _nota_requiere_recuperacion(nota):
+    """True si la nota es menor que 70 — requiere Recuperación Pedagógica."""
+    return nota is not None and nota < 70
+
+
+def _calcular_nota_final_con_recuperacion(nota_base, recup):
+    """
+    Calcula la nota final ajustada tras recuperación pedagógica.
+    Ord.04-2023: la evaluación completiva vale 50%, nota_final vale 50%.
+    Para la recuperación pedagógica (primer nivel) el docente puede mejorar
+    la nota directamente a partir de actividades complementarias.
+    Si se ingresa nota_completiva: nota_final_ajustada = (nota_base*0.5 + nota_completiva*0.5).
+    """
+    if recup is None:
+        return nota_base
+    # Completiva: promedio ponderado 50/50
+    return round(nota_base * 0.5 + recup * 0.5, 1)
+
+
+def _color_nota(nota):
+    if nota is None: return "#555"
+    if nota >= 89:   return "#4dffb4"
+    if nota >= 80:   return "#60b8f0"
+    if nota >= 70:   return "#c8f060"
+    if nota >= 60:   return "#f7b731"
+    return "#ff4d4d"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ENDPOINTS CALIFICACIONES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _semana_iso(fecha_str):
+    """Devuelve la semana ISO de una fecha string 'YYYY-MM-DD'."""
+    from datetime import datetime
+    try:
+        d = datetime.strptime(fecha_str, "%Y-%m-%d")
+        return f"{d.isocalendar()[0]}-W{d.isocalendar()[1]:02d}"
+    except Exception:
+        from datetime import date
+        return date.today().strftime("%G-W%V")
+
+
+def _psicologa_del_ciclo(conn, ciclo):
+    """Devuelve el usuario psicóloga asignado al ciclo del estudiante."""
+    rol = "psicologa_segundo_ciclo" if ciclo == "segundo_ciclo" else "psicologa_primer_ciclo"
+    row = conn.execute(
+        "SELECT id FROM usuarios WHERE rol=? AND activo=1 LIMIT 1", (rol,)
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def _crear_notificacion(conn, destinatario_id, origen_tipo, origen_id,
+                        estudiante_id, titulo, cuerpo=""):
+    """Inserta una notificación en la BD."""
+    if not destinatario_id:
+        return None
+    conn.execute("""
+        INSERT INTO notificaciones
+            (destinatario_id, origen_tipo, origen_id, estudiante_id, titulo, cuerpo)
+        VALUES (?,?,?,?,?,?)
+    """, (destinatario_id, origen_tipo, origen_id, estudiante_id, titulo, cuerpo))
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def _registrar_ausencia_semanal(conn, estudiante_id, fecha, materia):
+    """
+    Acumula la ausencia semanal del estudiante.
+    Si llega a 3 en la misma semana, genera alerta automática a la psicóloga.
+    """
+    semana = _semana_iso(fecha)
+
+    # Obtener o crear registro semanal
+    row = conn.execute(
+        "SELECT * FROM ausencias_semanales WHERE estudiante_id=? AND semana=?",
+        (estudiante_id, semana)
+    ).fetchone()
+
+    if row:
+        import json as _j
+        materias = _j.loads(row["materias"] or "{}")
+        materias[materia] = materias.get(materia, 0) + 1
+        total = row["total_ausencias"] + 1
+        conn.execute("""
+            UPDATE ausencias_semanales
+               SET total_ausencias=?, materias=?, actualizado_en=datetime('now')
+             WHERE estudiante_id=? AND semana=?
+        """, (total, _j.dumps(materias, ensure_ascii=False), estudiante_id, semana))
+
+        # ── ALERTA: 3+ ausencias en la semana ───────────────────────────────
+        if total >= 3 and not row["alerta_enviada"]:
+            est = conn.execute(
+                "SELECT nombre, apellido, ciclo FROM estudiantes WHERE id=?",
+                (estudiante_id,)
+            ).fetchone()
+            if est:
+                ciclo = est["ciclo"] or "segundo_ciclo"
+                psic_id = _psicologa_del_ciclo(conn, ciclo)
+                nombre_est = f"{est['nombre']} {est['apellido']}".strip()
+
+                titulo_alerta = f"⚠ Alerta de Asistencia — {nombre_est}"
+                cuerpo_alerta = (
+                    f"El/la estudiante {nombre_est} acumula {total} ausencias "
+                    f"durante la semana {semana}. "
+                    f"Materias afectadas: {', '.join(f'{m}({n})' for m,n in materias.items())}. "
+                    f"Se requiere seguimiento."
+                )
+
+                notif_id = _crear_notificacion(
+                    conn, psic_id, "asistencia", None,
+                    estudiante_id, titulo_alerta, cuerpo_alerta
+                )
+
+                # Crear caso automático si no hay uno abierto de asistencia esta semana
+                caso_existente = conn.execute("""
+                    SELECT id FROM casos
+                    WHERE estudiante_id=? AND tipo='asistencia'
+                      AND estado IN ('Abierto','En seguimiento')
+                      AND creado_en >= date('now','-7 days')
+                """, (estudiante_id,)).fetchone()
+
+                if not caso_existente and psic_id:
+                    conn.execute("""
+                        INSERT INTO casos
+                            (estudiante_id, abierto_por, tipo, titulo,
+                             descripcion, origen_tipo, nivel_escala)
+                        VALUES (?,?,?,?,?,?,1)
+                    """, (
+                        estudiante_id, psic_id, "asistencia",
+                        f"Alerta de asistencia — semana {semana}",
+                        cuerpo_alerta, "asistencia"
+                    ))
+
+                conn.execute("""
+                    UPDATE ausencias_semanales
+                       SET alerta_enviada=1, alerta_id=?
+                     WHERE estudiante_id=? AND semana=?
+                """, (notif_id, estudiante_id, semana))
+    else:
+        import json as _j
+        conn.execute("""
+            INSERT INTO ausencias_semanales (estudiante_id, semana, total_ausencias, materias)
+            VALUES (?,?,1,?)
+        """, (estudiante_id, semana, _j.dumps({materia: 1}, ensure_ascii=False)))
+
+
+def _alerta_nuevo_reporte(conn, reporte_id, estudiante_id, tipo_reporte,
+                          titulo_reporte, reportado_por):
+    """Genera notificación a la psicóloga cuando se crea un reporte."""
+    est = conn.execute(
+        "SELECT nombre, apellido, ciclo FROM estudiantes WHERE id=?",
+        (estudiante_id,)
+    ).fetchone()
+    if not est:
+        return
+
+    ciclo    = est["ciclo"] or "segundo_ciclo"
+    psic_id  = _psicologa_del_ciclo(conn, ciclo)
+    nombre   = f"{est['nombre']} {est['apellido']}".strip()
+    emoji    = {"conducta": "🔴", "psicologico": "🟡", "academico": "🔵"}.get(tipo_reporte, "📋")
+
+    _crear_notificacion(
+        conn, psic_id, "reporte", reporte_id, estudiante_id,
+        f"{emoji} Nuevo reporte — {nombre}",
+        f"Se registró un reporte de tipo '{tipo_reporte}' para {nombre}. "
+        f"Reportado por: {reportado_por}. Título: {titulo_reporte}."
+    )
+
+
+# ── NOTIFICACIONES ────────────────────────────────────────────────────────────
+
+
+def _hook_nuevo_reporte(conn, reporte_id, estudiante_id, tipo, titulo, reportado_por):
+    """Hook que se llama al crear un reporte para disparar notificación."""
+    _alerta_nuevo_reporte(conn, reporte_id, estudiante_id, tipo, titulo, reportado_por)
+
+
+# ── HOOK: interceptar registros de asistencia para contar ausencias ──────────
+
+
+def _hook_asistencia_ausente(conn, estudiante_id, fecha, materia):
+    """Hook que se llama cuando se registra una ausencia."""
+    _registrar_ausencia_semanal(conn, estudiante_id, fecha, materia)
+
+
+def _get_hijos(padre_id):
+    """Devuelve lista de estudiantes vinculados al padre."""
+    with sqlite3.connect(DATABASE, timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT e.*, v.parentesco
+               FROM vinculos_padre_estudiante v
+               JOIN estudiantes e ON e.id = v.estudiante_id
+               WHERE v.padre_id = ? AND e.condicion != 'INACTIVO'
+               ORDER BY e.apellido, e.nombre""",
+            (padre_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _render_perfil_staff(uid, viewer):
+    """Renderiza el perfil de cualquier miembro del personal con su timeline."""
+    try:
+      with sqlite3.connect(DATABASE, timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        staff = conn.execute("SELECT * FROM usuarios WHERE id=?", (uid,)).fetchone()
+        if not staff:
+            return redirect("/")
+        staff = dict(staff)
+
+        rol_n = _normalizar_rol(staff["rol"])
+        uid   = staff["id"]
+        stats = {}
+
+        # ── Estadísticas según el rol ─────────────────────────────────────
+        if rol_n in ROLES_PSICOLOGA:
+            ciclo = _ciclo_del_rol(rol_n)
+            stats["casos_abiertos"] = conn.execute(
+                "SELECT COUNT(*) FROM casos c JOIN estudiantes e ON e.id=c.estudiante_id "
+                "WHERE c.estado NOT IN ('Resuelto','Cerrado') AND e.ciclo=?", (ciclo,)
+            ).fetchone()[0]
+            stats["acuerdos"] = conn.execute(
+                "SELECT COUNT(*) FROM acuerdos_compromiso WHERE generado_por=?", (uid,)
+            ).fetchone()[0]
+            stats["notif_pendientes"] = conn.execute(
+                "SELECT COUNT(*) FROM notificaciones WHERE destinatario_id=? AND leida=0", (uid,)
+            ).fetchone()[0]
+            stats["casos_cerrados"] = conn.execute(
+                "SELECT COUNT(*) FROM casos WHERE estado IN ('Resuelto','Cerrado')"
+            ).fetchone()[0]
+
+        elif rol_n in ROLES_COORD or rol_n in ROLES_SUPER:
+            try:
+                stats["total_estudiantes"] = conn.execute(
+                    "SELECT COUNT(*) FROM estudiantes"
+                ).fetchone()[0]
+            except Exception: stats["total_estudiantes"] = 0
+            try:
+                stats["casos_abiertos"] = conn.execute(
+                    "SELECT COUNT(*) FROM casos WHERE estado NOT IN ('Resuelto','Cerrado')"
+                ).fetchone()[0]
+            except Exception: stats["casos_abiertos"] = 0
+            try:
+                stats["reportes_mes"] = conn.execute(
+                    "SELECT COUNT(*) FROM reportes WHERE fecha >= date('now','-30 days')"
+                ).fetchone()[0]
+            except Exception: stats["reportes_mes"] = 0
+            try:
+                stats["usuarios_activos"] = conn.execute(
+                    "SELECT COUNT(*) FROM usuarios WHERE activo=1"
+                ).fetchone()[0]
+            except Exception: stats["usuarios_activos"] = 0
+
+        elif rol_n == "profesor":
+            grado_prof = staff.get("grado", "")
+            try:
+                if grado_prof:
+                    grados = [g.strip().upper() for g in grado_prof.split(",") if g.strip()]
+                    placeholders = ",".join("?" * len(grados))
+                    stats["mis_estudiantes"] = conn.execute(
+                        f"SELECT COUNT(*) FROM estudiantes WHERE upper(grado) IN ({placeholders})",
+                        grados
+                    ).fetchone()[0]
+                else:
+                    stats["mis_estudiantes"] = 0
+            except Exception: stats["mis_estudiantes"] = 0
+            try:
+                stats["planificaciones"] = conn.execute(
+                    "SELECT COUNT(*) FROM historial_planificaciones WHERE profesor_id=?", (uid,)
+                ).fetchone()[0]
+            except Exception: stats["planificaciones"] = 0
+            try:
+                stats["reportes_creados"] = conn.execute(
+                    "SELECT COUNT(*) FROM reportes WHERE reportado_por=?", (uid,)
+                ).fetchone()[0]
+            except Exception: stats["reportes_creados"] = 0
+            try:
+                stats["asistencias_registradas"] = conn.execute(
+                    "SELECT COUNT(DISTINCT fecha||estudiante_id) FROM asistencia WHERE profesor_id=?", (uid,)
+                ).fetchone()[0]
+            except Exception: stats["asistencias_registradas"] = 0
+        else:
+            try:
+                stats["estudiantes_total"] = conn.execute(
+                    "SELECT COUNT(*) FROM estudiantes"
+                ).fetchone()[0]
+            except Exception: pass
+
+        # ── TIMELINE UNIFICADO ────────────────────────────────────────────
+        # Reúne toda la actividad del usuario de múltiples tablas
+        timeline = []
+
+        # Reportes creados por el usuario
+        try:
+            rows = conn.execute("""
+                SELECT 'reporte' as tipo,
+                       r.fecha as fecha,
+                       '📋 Reporte ' || r.tipo || ' — ' || e.nombre || ' ' || e.apellido as desc,
+                       r.severidad as extra,
+                       e.id as ref_id,
+                       '/perfil/' || e.id as url
+                FROM reportes r
+                JOIN estudiantes e ON e.id = r.estudiante_id
+                WHERE r.reportado_por = ?
+                ORDER BY r.fecha DESC LIMIT 30
+            """, (uid,)).fetchall()
+            timeline.extend([dict(r) for r in rows])
+        except Exception: pass
+
+        # Casos abiertos por el usuario
+        try:
+            rows = conn.execute("""
+                SELECT 'caso' as tipo,
+                       c.creado_en as fecha,
+                       '🗂️ Caso ' || c.tipo || ': ' || c.titulo as desc,
+                       c.estado as extra,
+                       c.id as ref_id,
+                       '/casos' as url
+                FROM casos c
+                WHERE c.abierto_por = ?
+                ORDER BY c.creado_en DESC LIMIT 20
+            """, (uid,)).fetchall()
+            timeline.extend([dict(r) for r in rows])
+        except Exception: pass
+
+        # Acciones en casos (notas, citas, reuniones)
+        try:
+            rows = conn.execute("""
+                SELECT 'caso_accion' as tipo,
+                       a.fecha_accion as fecha,
+                       '💬 ' || a.tipo_accion || ' en caso #' || a.caso_id || ': ' || substr(a.descripcion,1,60) as desc,
+                       c.titulo as extra,
+                       c.id as ref_id,
+                       '/casos' as url
+                FROM caso_acciones a
+                JOIN casos c ON c.id = a.caso_id
+                WHERE a.actor_id = ?
+                ORDER BY a.fecha_accion DESC LIMIT 20
+            """, (uid,)).fetchall()
+            timeline.extend([dict(r) for r in rows])
+        except Exception: pass
+
+        # Acuerdos-Compromiso redactados
+        try:
+            rows = conn.execute("""
+                SELECT 'acuerdo' as tipo,
+                       ac.creado_en as fecha,
+                       '📝 Acuerdo-Compromiso para ' || e.nombre || ' ' || e.apellido as desc,
+                       'Acuerdo formal' as extra,
+                       e.id as ref_id,
+                       '/perfil/' || e.id as url
+                FROM acuerdos_compromiso ac
+                JOIN estudiantes e ON e.id = ac.estudiante_id
+                WHERE ac.generado_por = ?
+                ORDER BY ac.creado_en DESC LIMIT 15
+            """, (uid,)).fetchall()
+            timeline.extend([dict(r) for r in rows])
+        except Exception: pass
+
+        # Planificaciones guardadas (profesores)
+        try:
+            rows = conn.execute("""
+                SELECT 'planificacion' as tipo,
+                       hp.fecha as fecha,
+                       '📚 Planificación: ' || COALESCE(hp.tema, hp.materia, 'Sin título') as desc,
+                       hp.materia as extra,
+                       hp.id as ref_id,
+                       '/planificacion' as url
+                FROM historial_planificaciones hp
+                WHERE hp.profesor_id = ?
+                ORDER BY hp.fecha DESC LIMIT 20
+            """, (uid,)).fetchall()
+            timeline.extend([dict(r) for r in rows])
+        except Exception: pass
+
+        # Notificaciones recibidas (para psicólogas)
+        try:
+            rows = conn.execute("""
+                SELECT 'notificacion' as tipo,
+                       n.creado_en as fecha,
+                       '🔔 ' || n.titulo as desc,
+                       CASE WHEN n.leida THEN 'Leída' ELSE 'Sin leer' END as extra,
+                       n.id as ref_id,
+                       '/casos' as url
+                FROM notificaciones n
+                WHERE n.destinatario_id = ?
+                ORDER BY n.creado_en DESC LIMIT 20
+            """, (uid,)).fetchall()
+            timeline.extend([dict(r) for r in rows])
+        except Exception: pass
+
+        # Ordenar todo por fecha descendente y tomar los 50 más recientes
+        def _fecha_key(item):
+            return (item.get("fecha") or "1900-01-01")
+        timeline.sort(key=_fecha_key, reverse=True)
+        timeline = timeline[:50]
+
+      es_propio = (viewer["id"] == uid)
+      return render_template(
+          "mi_perfil.html",
+          staff       = staff,
+          stats       = stats,
+          timeline    = timeline,
+          current_user= viewer,
+          es_propio   = es_propio,
+          es_vista_admin = not es_propio,
+      )
+    except Exception as _e:
+        import traceback as _tb
+        logger.error(f"Error en mi_perfil para uid={uid}: {_e}\n{_tb.format_exc()}")
+        # Render a minimal fallback instead of redirecting to login
+        return render_template(
+            "mi_perfil.html",
+            staff       = {"nombre": viewer.get("nombre",""), "username": viewer.get("username",""),
+                           "rol": viewer.get("rol",""), "id": uid},
+            stats       = {},
+            timeline    = [],
+            current_user= viewer,
+            es_propio   = True,
+            es_vista_admin = False,
+            error_msg   = f"Error cargando el perfil: {str(_e)}"
+        )
+
+
+def _calcular_indice_conductual(conn, est_id):
+    """
+    Índice conductual compuesto — alimentado de todo el ecosistema:
+      40%  Indicadores directos del profesor (puntualidad, participacion, tareas, rendimiento, comprension)
+      20%  Indicadores negativos invertidos   (interrupciones, conflictos, desafia_autoridad, distraccion, falta_respeto)
+      25%  Penalización por reportes formales de conducta / incidentes
+      15%  Penalización por cuaderno anecdótico conductual
+    Baja asistencia aplica descuento adicional.
+    Si no hay indicadores directos, los pesos se redistribuyen entre reportes y cuaderno.
+    """
+    components = []
+
+    # ── 1. Indicadores directos del profesor ────────────────────────────────
+    try:
+        row = conn.execute(
+            "SELECT puntualidad, participacion, tareas, rendimiento, comprension,"
+            "       interrupciones, conflictos, desafia_autoridad, distraccion, falta_respeto,"
+            "       asistencia"
+            " FROM estudiantes WHERE id=?", (est_id,)
+        ).fetchone()
+    except Exception:
+        row = None
+
+    asistencia_est = 0.0
+    if row:
+        pos_vals = [float(row[i] or 0) for i in range(5) if float(row[i] or 0) > 0]
+        if pos_vals:
+            components.append((sum(pos_vals) / len(pos_vals), 0.40))
+
+        neg_vals = [float(row[i] or 0) for i in range(5, 10) if float(row[i] or 0) > 0]
+        if neg_vals:
+            avg_neg = sum(neg_vals) / len(neg_vals)
+            components.append((max(0.0, 100.0 - avg_neg), 0.20))
+
+        asistencia_est = float(row[10] or 0)
+
+    # ── 2. Asistencia mensual real (datos de profesores, más autoritativa) ──
+    try:
+        rows_asist = conn.execute(
+            "SELECT porcentaje FROM asistencia_mensual"
+            " WHERE estudiante_id=? AND porcentaje IS NOT NULL AND porcentaje > 0",
+            (est_id,)
+        ).fetchall()
+        if rows_asist:
+            pcts = [float(r[0]) for r in rows_asist if r[0]]
+            if pcts:
+                asistencia_est = sum(pcts) / len(pcts)
+    except Exception:
+        pass
+
+    # ── 3. Reportes formales de conducta / incidentes ───────────────────────
+    DESC_RPT = {'alta': 30, 'grave': 30, 'media': 20, 'baja': 10}
+    rpt_score = 100.0
+    try:
+        for r in conn.execute(
+            "SELECT tipo, severidad FROM reportes"
+            " WHERE estudiante_id=? AND tipo IN ('conducta','incidente_grave')",
+            (est_id,)
+        ).fetchall():
+            tipo = (r[0] or '').lower()
+            sev  = (r[1] or '').lower()
+            rpt_score -= 40 if tipo == 'incidente_grave' else DESC_RPT.get(sev, 20)
+    except Exception:
+        pass
+    components.append((max(0.0, rpt_score), 0.25))
+
+    # ── 4. Cuaderno anecdótico conductual ───────────────────────────────────
+    DESC_CA = {'conducta': 10, 'incidente': 15, 'disciplina': 10}
+    cuad_score = 100.0
+    try:
+        for row_ca in conn.execute(
+            "SELECT tipo FROM cuaderno_anecdotico"
+            " WHERE estudiante_id=? AND lower(tipo) IN ('conducta','incidente','disciplina')",
+            (est_id,)
+        ).fetchall():
+            cuad_score -= DESC_CA.get((row_ca[0] or '').lower(), 5)
+    except Exception:
+        pass
+    components.append((max(0.0, cuad_score), 0.15))
+
+    # ── Combinar con pesos normalizados ─────────────────────────────────────
+    total_w = sum(w for _, w in components)
+    score = sum(v * w for v, w in components) / total_w if components else 100.0
+
+    # ── Penalización por baja asistencia ────────────────────────────────────
+    if asistencia_est > 0:
+        if asistencia_est < 70:
+            score = max(0.0, score - 8)
+        elif asistencia_est < 80:
+            score = max(0.0, score - 4)
+
+    return round(max(0.0, min(100.0, score)), 1)
+
+
+# ── MOTOR CONDUCTUAL FASE 1 ──────────────────────────────────────────────────
+
+def calcular_motor_conductual(conn, est_id):
+    """
+    Motor conductual Fase 1 — semáforo de riesgo estudiantil.
+
+    Fórmula base: 40% notas + 35% asistencia + 25% balance_tags
+    Si asistencia no disponible → redistribuye a 62% notas + 38% tags.
+
+    Semáforo:
+      VERDE   > 70
+      AMARILLO  50-70
+      ROJO    < 50
+
+    Retorna dict:
+      { score, semaforo, comp_notas, comp_asistencia, comp_tags,
+        tiene_asistencia, n_positivos, n_negativos }
+    """
+    # ── 1. Componente notas (p_acad de materias_calificaciones) ─────────────
+    row = conn.execute(
+        "SELECT p_acad, asistencia FROM estudiantes WHERE id=?", (est_id,)
+    ).fetchone()
+    p_acad      = float(row["p_acad"] or 0) if row else 0.0
+    asist_est   = float(row["asistencia"] or 0) if row else 0.0
+
+    # Intentar asistencia mensual real (más autoritativa)
+    rows_am = conn.execute(
+        "SELECT porcentaje FROM asistencia_mensual"
+        " WHERE estudiante_id=? AND porcentaje IS NOT NULL AND porcentaje > 0",
+        (est_id,)
+    ).fetchall()
+    if rows_am:
+        pcts = [float(r[0]) for r in rows_am]
+        asist_est = sum(pcts) / len(pcts)
+
+    tiene_asistencia = asist_est > 0
+
+    # ── 2. Componente tags (cuaderno anecdótico) ─────────────────────────────
+    ca_rows = conn.execute(
+        "SELECT polaridad FROM cuaderno_anecdotico"
+        " WHERE estudiante_id=? AND polaridad IN ('positivo','negativo')",
+        (est_id,)
+    ).fetchall()
+    # Manejo de row_factory mixto (Row o tuple)
+    def _pol(r):
+        try:    return r["polaridad"]
+        except: return r[0]
+    n_pos = sum(1 for r in ca_rows if _pol(r) == "positivo")
+    n_neg = sum(1 for r in ca_rows if _pol(r) == "negativo")
+    total_ca = n_pos + n_neg
+    tiene_cuaderno = total_ca > 0
+    if total_ca == 0:
+        tags_score = 70.0          # neutral: sin historial → score medio-alto
+    else:
+        tags_score = (n_pos / total_ca) * 100.0
+
+    # ── 3. Sin datos académicos → semáforo N/D ───────────────────────────────
+    # Solo aplica cuando p_acad=0 Y sin asistencia Y sin cuaderno
+    if p_acad == 0 and not tiene_asistencia and not tiene_cuaderno:
+        return {
+            "score":            None,
+            "semaforo":         "ND",
+            "comp_notas":       0.0,
+            "comp_asistencia":  0.0,
+            "comp_tags":        tags_score,
+            "tiene_asistencia": False,
+            "n_positivos":      0,
+            "n_negativos":      0,
+        }
+
+    # ── 4. Calcular score con pesos según disponibilidad ─────────────────────
+    if tiene_asistencia:
+        score = 0.40 * p_acad + 0.35 * asist_est + 0.25 * tags_score
+    else:
+        # Redistribuir: 40/25 → proporcional: 40+25=65, notas=40/65, tags=25/65
+        score = (40 / 65) * p_acad + (25 / 65) * tags_score
+
+    score = round(max(0.0, min(100.0, score)), 1)
+
+    if score > 70:
+        semaforo = "VERDE"
+    elif score >= 50:
+        semaforo = "AMARILLO"
+    else:
+        semaforo = "ROJO"
+
+    return {
+        "score":            score,
+        "semaforo":         semaforo,
+        "comp_notas":       round(p_acad, 1),
+        "comp_asistencia":  round(asist_est, 1),
+        "comp_tags":        round(tags_score, 1),
+        "tiene_asistencia": tiene_asistencia,
+        "n_positivos":      n_pos,
+        "n_negativos":      n_neg,
+    }
+
+
+def _semaforo_color(semaforo):
+    """Devuelve el color hex del semáforo conductual."""
+    return {"VERDE": "#2E9E68", "AMARILLO": "#C48A1E", "ROJO": "#C9352B"}.get(semaforo, "#888")
+
+
+def _semaforo_emoji(semaforo):
+    return {"VERDE": "🟢", "AMARILLO": "🟡", "ROJO": "🔴"}.get(semaforo, "⚪")
+
+
+def _calcular_bienestar_emocional(conn, est_id):
+    """
+    Bienestar emocional compuesto — alimentado de todo el ecosistema:
+      50%  Indicadores emocionales directos (motivacion, estado_emocional, interes_futuro, apoyo_familiar, p_emocional)
+      35%  Penalización por reportes psicológicos formales
+      15%  Penalización por cuaderno anecdótico emocional / psicológico / familiar
+    Si no hay indicadores directos, los pesos se redistribuyen entre reportes y cuaderno.
+    """
+    components = []
+
+    # ── 1. Indicadores emocionales directos (psicóloga / tutor) ─────────────
+    try:
+        row = conn.execute(
+            "SELECT motivacion, estado_emocional, interes_futuro, apoyo_familiar, p_emocional"
+            " FROM estudiantes WHERE id=?", (est_id,)
+        ).fetchone()
+    except Exception:
+        row = None
+
+    if row:
+        emoc_vals = [float(row[i] or 0) for i in range(5) if float(row[i] or 0) > 0]
+        if emoc_vals:
+            components.append((sum(emoc_vals) / len(emoc_vals), 0.50))
+
+    # ── 2. Reportes psicológicos formales ───────────────────────────────────
+    DESC_RPT = {'alta': 25, 'grave': 25, 'media': 15, 'baja': 8}
+    rpt_score = 100.0
+    try:
+        for r in conn.execute(
+            "SELECT severidad FROM reportes WHERE estudiante_id=? AND tipo='psicologico'",
+            (est_id,)
+        ).fetchall():
+            sev = (r[0] or '').lower()
+            rpt_score -= DESC_RPT.get(sev, 15)
+    except Exception:
+        pass
+    components.append((max(0.0, rpt_score), 0.35))
+
+    # ── 3. Cuaderno anecdótico emocional / psicológico / familiar ───────────
+    DESC_CA = {'psicologico': 12, 'emocional': 10, 'familiar': 8}
+    cuad_score = 100.0
+    try:
+        for row_ca in conn.execute(
+            "SELECT tipo FROM cuaderno_anecdotico"
+            " WHERE estudiante_id=? AND lower(tipo) IN ('psicologico','emocional','familiar')",
+            (est_id,)
+        ).fetchall():
+            cuad_score -= DESC_CA.get((row_ca[0] or '').lower(), 5)
+    except Exception:
+        pass
+    components.append((max(0.0, cuad_score), 0.15))
+
+    # ── Combinar con pesos normalizados ─────────────────────────────────────
+    total_w = sum(w for _, w in components)
+    score = sum(v * w for v, w in components) / total_w if components else 100.0
+
+    return round(max(0.0, min(100.0, score)), 1)
+
+
+def construir_historial_notas(conn, est_id):
+    """Notas del estudiante agrupadas por año escolar (todos los años, sin
+    filtrar por grado actual — a propósito, es EL histórico). Compartida
+    entre /api/calificaciones/historial-notas/<id> (JSON) y
+    /api/promocion/record-notas/<id> (HTML imprimible)."""
+    anios = conn.execute("""
+        SELECT DISTINCT COALESCE(anio_escolar, '2025-2026') as anio
+        FROM materias_calificaciones
+        WHERE estudiante_id=?
+        ORDER BY anio DESC
+    """, (est_id,)).fetchall()
+
+    historial = []
+    for anio_row in anios:
+        anio = anio_row["anio"]
+        rows = conn.execute("""
+            SELECT materia, tipo, grado,
+                   p1, p2, p3, p4, promedio
+            FROM materias_calificaciones
+            WHERE estudiante_id=? AND COALESCE(anio_escolar,'2025-2026')=?
+            ORDER BY tipo, materia
+        """, (est_id, anio)).fetchall()
+
+        materias = []
+        for r in rows:
+            m = dict(r)
+            prom = m.get("promedio") or 0
+            m["aprobada"] = prom >= 70
+            materias.append(m)
+
+        prom_row = conn.execute("""
+            SELECT estado, grado_origen, grado_destino
+            FROM promociones WHERE estudiante_id=? AND anio_escolar=?
+        """, (est_id, anio)).fetchone()
+
+        historial.append({
+            "anio_escolar": anio,
+            "materias": materias,
+            "total": len(materias),
+            "aprobadas": sum(1 for m in materias if m["aprobada"]),
+            "reprobadas": sum(1 for m in materias if not m["aprobada"] and (m.get("promedio") or 0) > 0),
+            "promocion": dict(prom_row) if prom_row else None,
+        })
+
+    return historial
+
+
+_ACAD_ESTANDAR = {
+    "lengua española", "inglés", "ingles", "matemática", "matematica",
+    "ciencias sociales", "ciencias de la naturaleza", "ciencias naturales",
+    "formación integral humana y religiosa", "fihr",
+    "educación física", "educacion fisica",
+}
+
+
+def catalogo_materias_grado(grado: str, curso: str) -> list:
+    """Catálogo de materias (PLAN_ARTES) para el grado/mención de un
+    estudiante, con notas vacías. Se usa cuando el estudiante aún no tiene
+    calificaciones cargadas para su grado/año actual (recién promovido, año
+    escolar recién iniciado), para que la UI muestre qué materias le
+    corresponden en vez de una pantalla en blanco.
+    """
+    from core.constants import PLAN_ARTES
+
+    grado_key = (grado or "").strip().lower()
+    curso_up  = (curso or "").strip().upper()
+    partes    = curso_up.split(None, 1)
+    mencion   = partes[1].strip() if len(partes) > 1 else ""
+
+    plan_grado = PLAN_ARTES.get(mencion, {}).get(grado_key, [])
+    catalogo = []
+    for nombre, _horas in plan_grado:
+        es_acad = nombre.lower().strip() in _ACAD_ESTANDAR
+        catalogo.append({
+            "materia": nombre,
+            "tipo": "académico" if es_acad else "técnico",
+            "p1": None, "p2": None, "p3": None, "p4": None,
+            "promedio": None,
+            "fecha_carga": None,
+        })
+    return catalogo
+
+
+def obtener_notas_estudiante(conn, est_id, anio=None, grado=None):
+    """
+    Retorna las notas del estudiante desde la fuente canónica (calificaciones_periodo).
+    Para materias sin nota manual, cae en materias_calificaciones (importación PDF).
+
+    Aplica deduplicación via _normalizar_clave_materia() / _MATERIA_SINONIMOS:
+      · MAYÚS vs Proper Case del mismo nombre → se unifica
+      · Alias cross-mención (ej: "HISTORIA DEL ARTE UNIVERSAL Y ESTÉTICA DIGITAL"
+        vs "Introducción a la Historia del Arte...") → se unifica al de mayor promedio
+      · Períodos faltantes en una entrada se completan desde la otra
+      · Nombre de display: prefiere Proper Case sobre TODO MAYÚSCULAS
+
+    Si `grado` se pasa, filtra también por grado (NULL-tolerant — filas sin grado
+    etiquetado se incluyen igual). Evita que un estudiante promovido (ej. 4TO→5TO)
+    arrastre notas del grado anterior cuando ambas comparten el mismo anio_escolar
+    porque el año todavía no rotó en configuracion_centro.
+
+    Retorna dict: {materia: {p1, p2, p3, p4, promedio}}
+    Todos los callers reciben datos ya deduplicados — no es necesario deduplicar
+    de nuevo en evaluar_estudiante() ni en recalcular_kpis_estudiante().
+    """
+    if anio is None:
+        anio = _anio_escolar_actual()
+    grado_n = (grado or "").strip().upper() or None
+
+    notas = {}  # {materia_raw: {p1, p2, p3, p4}}
+
+    # ── 1. Fuente canónica: calificaciones_periodo (notas manuales de profesores) ──
+    if grado_n:
+        rows_cp = conn.execute(
+            "SELECT materia, periodo, calificacion FROM calificaciones_periodo "
+            "WHERE estudiante_id=? AND anio_escolar=? "
+            "  AND (grado IS NULL OR UPPER(grado)=?)",
+            (est_id, anio, grado_n)
+        ).fetchall()
+    else:
+        rows_cp = conn.execute(
+            "SELECT materia, periodo, calificacion FROM calificaciones_periodo "
+            "WHERE estudiante_id=? AND anio_escolar=?",
+            (est_id, anio)
+        ).fetchall()
+    for r in rows_cp:
+        mat  = r["materia"] if hasattr(r, "keys") else r[0]
+        per  = (r["periodo"] if hasattr(r, "keys") else r[1]).upper().strip()
+        nota = float(r["calificacion"] if hasattr(r, "keys") else r[2])
+        # Normalizar "PP1" → "P1" (calificaciones_periodo guarda con doble P)
+        if per.startswith("PP") and len(per) == 3 and per[2].isdigit():
+            per = "P" + per[2]
+        if mat not in notas:
+            notas[mat] = {}
+        notas[mat][per.lower()] = nota  # 'p1', 'p2', 'p3', 'p4'
+
+    # ── 2. Fallback: materias_calificaciones (importadas desde PDF) ────────────
+    # Merge por período: CP tiene prioridad; períodos faltantes se completan desde MC.
+    if grado_n:
+        rows_mc = conn.execute(
+            "SELECT materia, p1, p2, p3, p4 FROM materias_calificaciones "
+            "WHERE estudiante_id=? AND anio_escolar=? "
+            "  AND (grado IS NULL OR UPPER(grado)=?)",
+            (est_id, anio, grado_n)
+        ).fetchall()
+    else:
+        rows_mc = conn.execute(
+            "SELECT materia, p1, p2, p3, p4 FROM materias_calificaciones "
+            "WHERE estudiante_id=? AND anio_escolar=?",
+            (est_id, anio)
+        ).fetchall()
+    for r in rows_mc:
+        mat = r["materia"] if hasattr(r, "keys") else r[0]
+        p_mc = {
+            "p1": float(r["p1"] if hasattr(r, "keys") else r[1] or 0),
+            "p2": float(r["p2"] if hasattr(r, "keys") else r[2] or 0),
+            "p3": float(r["p3"] if hasattr(r, "keys") else r[3] or 0),
+            "p4": float(r["p4"] if hasattr(r, "keys") else r[4] or 0),
+        }
+        if mat not in notas:
+            notas[mat] = p_mc
+        else:
+            # Ya hay datos CP para esta materia → completar solo períodos ausentes
+            for p_key in ("p1", "p2", "p3", "p4"):
+                if not notas[mat].get(p_key) and p_mc.get(p_key, 0) > 0:
+                    notas[mat][p_key] = p_mc[p_key]
+
+    # ── 3. Calcular promedio por materia ───────────────────────────────────────
+    raw: dict = {}
+    for mat, periodos in notas.items():
+        vals_validos = [periodos.get(f"p{i}", 0.0) for i in range(1, 5) if periodos.get(f"p{i}", 0.0) > 0]
+        raw[mat] = {
+            "p1":      periodos.get("p1", 0.0),
+            "p2":      periodos.get("p2", 0.0),
+            "p3":      periodos.get("p3", 0.0),
+            "p4":      periodos.get("p4", 0.0),
+            "promedio": round(sum(vals_validos) / len(vals_validos), 2) if vals_validos else 0.0,
+        }
+
+    # ── 4. Deduplicar via _MATERIA_SINONIMOS ──────────────────────────────────
+    # Unifica nombres distintos que mapean al mismo sujeto (alias cross-mención,
+    # MAYÚS vs Proper Case, typos conocidos).
+    # Regla de merge:
+    #   · Conserva la entrada con promedio más alto
+    #   · Completa períodos faltantes desde la entrada alternativa
+    #   · Prefiere Proper Case sobre TODO MAYÚSCULAS para el nombre de display
+    dedup: dict = {}  # {clave_canon: (nombre_display, datos)}
+    for mat, d in raw.items():
+        key = _normalizar_clave_materia(mat)
+        if key not in dedup:
+            dedup[key] = (mat, dict(d))
+        else:
+            prev_mat, prev_d = dedup[key]
+            merged = dict(prev_d)
+            for p in ("p1", "p2", "p3", "p4"):
+                if not (merged.get(p) and merged[p] > 0) and (d.get(p) and d[p] > 0):
+                    merged[p] = d[p]
+            vals = [merged[p] for p in ("p1", "p2", "p3", "p4") if merged.get(p) and merged[p] > 0]
+            merged["promedio"] = round(sum(vals) / len(vals), 2) if vals else 0.0
+            # Preferir Proper Case sobre MAYÚSCULAS
+            nombre_display = prev_mat if prev_mat != prev_mat.upper() else mat
+            dedup[key] = (nombre_display, merged)
+
+    return {mat: d for _, (mat, d) in dedup.items()}
+
+
+def recalcular_kpis_estudiante(conn, est_id, anio=None):
+    """
+    Recalcula p_acad, acad_p1-p4 del estudiante y los persiste en la tabla estudiantes.
+    Llama a esta función después de cada escritura en calificaciones_periodo.
+    Fuente: obtener_notas_estudiante() (canónica = calificaciones_periodo + fallback PDF).
+    """
+    if anio is None:
+        anio = _anio_escolar_actual()
+
+    _grado_row = conn.execute("SELECT grado FROM estudiantes WHERE id=?", (est_id,)).fetchone()
+    _grado_est = (_grado_row[0] if _grado_row else None) or None
+
+    notas = obtener_notas_estudiante(conn, est_id, anio, grado=_grado_est)
+    if not notas:
+        return  # sin datos: no sobreescribir ceros
+
+    # Promedio por período (todas las materias)
+    per_sums = {1: [], 2: [], 3: [], 4: []}
+    for mat_data in notas.values():
+        for i in range(1, 5):
+            v = mat_data.get(f"p{i}", 0.0)
+            if v > 0:
+                per_sums[i].append(v)
+
+    acad_p = {}
+    for i in range(1, 5):
+        acad_p[i] = round(sum(per_sums[i]) / len(per_sums[i]), 2) if per_sums[i] else 0.0
+
+    # Promedio general = promedio de promedios por materia
+    promedios = [d["promedio"] for d in notas.values() if d["promedio"] > 0]
+    p_acad = round(sum(promedios) / len(promedios), 2) if promedios else 0.0
+
+    try:
+        conn.execute(
+            "UPDATE estudiantes SET "
+            "p_acad=?, acad_p1=?, acad_p2=?, acad_p3=?, acad_p4=?, tiene_notas=1 "
+            "WHERE id=?",
+            (p_acad, acad_p[1], acad_p[2], acad_p[3], acad_p[4], est_id)
+        )
+    except Exception as _e:
+        logger.warning(f"[KPI] recalcular_kpis_estudiante({est_id}): {_e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MOTOR DE EVALUACIÓN POR COMPETENCIAS (H3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def sembrar_competencias_materia(conn, materia, ces, anio=None):
+    """
+    Siembra/actualiza las competencias de una materia.
+    ces: lista de dicts {numero, descripcion, periodo_eval}
+    Idempotente — usa INSERT OR IGNORE.
+    """
+    if anio is None:
+        anio = _anio_escolar_actual()
+    insertados = 0
+    for ce in ces:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO competencias_materia "
+                "(materia, numero, descripcion, periodo_eval, anio_escolar, orden) "
+                "VALUES (?,?,?,?,?,?)",
+                (materia, ce['numero'], ce['descripcion'],
+                 ce['periodo_eval'], anio, ce['numero'])
+            )
+            if conn.execute("SELECT changes()").fetchone()[0]:
+                insertados += 1
+        except Exception as _e:
+            logger.warning(f"[CE] sembrar {materia} CE{ce['numero']}: {_e}")
+    return insertados
+
+
+def calcular_cf_por_ce(conn, est_id, materia, anio=None):
+    """
+    Calcula P1-P4 y CF a partir de notas_competencias_ce.
+
+    Retorna dict:
+    {
+        p1, p2, p3, p4,   # promedio de CEs de ese período (None si sin datos)
+        cf,               # promedio de los períodos con datos
+        cf_completo,      # True si los 4 períodos tienen nota
+        ces: {ce_numero: {nota, periodo_eval}}
+    }
+    """
+    if anio is None:
+        anio = _anio_escolar_actual()
+
+    # Cargar definiciones de CEs para esta materia
+    ce_defs = conn.execute(
+        "SELECT numero, periodo_eval FROM competencias_materia "
+        "WHERE materia=? AND anio_escolar=? AND activa=1",
+        (materia, anio)
+    ).fetchall()
+
+    if not ce_defs:
+        return {"p1": None, "p2": None, "p3": None, "p4": None,
+                "cf": None, "cf_completo": False, "ces": {}}
+
+    # Mapa: ce_numero → periodo_eval
+    ce_map = {}
+    for row in ce_defs:
+        n   = row["numero"] if hasattr(row, "keys") else row[0]
+        per = row["periodo_eval"] if hasattr(row, "keys") else row[1]
+        ce_map[n] = per
+
+    # Cargar notas del estudiante
+    notas = conn.execute(
+        "SELECT ce_numero, nota FROM notas_competencias_ce "
+        "WHERE estudiante_id=? AND materia=? AND anio_escolar=?",
+        (est_id, materia, anio)
+    ).fetchall()
+    ce_notas = {}
+    for row in notas:
+        n    = row["ce_numero"] if hasattr(row, "keys") else row[0]
+        nota = float(row["nota"] if hasattr(row, "keys") else row[1])
+        ce_notas[n] = nota
+
+    # Agrupar notas por período según definición
+    por_periodo = {"P1": [], "P2": [], "P3": [], "P4": []}
+    ces_detalle = {}
+    for ce_num, periodo in ce_map.items():
+        if ce_num in ce_notas:
+            por_periodo[periodo].append(ce_notas[ce_num])
+        ces_detalle[ce_num] = {
+            "nota":         ce_notas.get(ce_num),
+            "periodo_eval": periodo,
+        }
+
+    # Calcular promedio por período
+    def _prom(lst):
+        return round(sum(lst) / len(lst), 2) if lst else None
+
+    p1 = _prom(por_periodo["P1"])
+    p2 = _prom(por_periodo["P2"])
+    p3 = _prom(por_periodo["P3"])
+    p4 = _prom(por_periodo["P4"])
+
+    periodos_con_datos = [v for v in [p1, p2, p3, p4] if v is not None]
+    cf = round(sum(periodos_con_datos) / len(periodos_con_datos), 2) if periodos_con_datos else None
+    cf_completo = all(v is not None for v in [p1, p2, p3, p4])
+
+    return {
+        "p1": p1, "p2": p2, "p3": p3, "p4": p4,
+        "cf": cf, "cf_completo": cf_completo,
+        "ces": ces_detalle,
+    }
+
+
+def guardar_nota_ce_y_recalcular(conn, est_id, prof_id, materia, ce_numero, nota, anio=None):
+    """
+    Guarda la nota de una CE y recalcula P1-P4/CF automáticamente.
+    Escribe la CF en calificaciones_periodo (fuente canónica) con origen='actividades'.
+
+    Retorna dict con el resultado del cálculo.
+    """
+    if anio is None:
+        anio = _anio_escolar_actual()
+
+    # Obtener el período de evaluación de esta CE
+    ce_def = conn.execute(
+        "SELECT periodo_eval FROM competencias_materia "
+        "WHERE materia=? AND numero=? AND anio_escolar=?",
+        (materia, ce_numero, anio)
+    ).fetchone()
+    if not ce_def:
+        raise ValueError(f"CE{ce_numero} no definida para {materia} ({anio})")
+    periodo_ce = ce_def["periodo_eval"] if hasattr(ce_def, "keys") else ce_def[0]
+
+    # Guardar nota de la CE
+    conn.execute(
+        "INSERT INTO notas_competencias_ce "
+        "(estudiante_id, profesor_id, materia, ce_numero, periodo, nota, anio_escolar) "
+        "VALUES (?,?,?,?,?,?,?) "
+        "ON CONFLICT(estudiante_id, materia, ce_numero, anio_escolar) "
+        "DO UPDATE SET nota=excluded.nota, profesor_id=excluded.profesor_id, "
+        "              actualizado=datetime('now')",
+        (est_id, prof_id, materia, ce_numero, periodo_ce, nota, anio)
+    )
+
+    # Recalcular CF
+    resultado = calcular_cf_por_ce(conn, est_id, materia, anio)
+
+    # Escribir en calificaciones_periodo (canónica) si hay CF completo
+    if resultado["cf_completo"] and resultado["cf"] is not None:
+        # Escribir cada período calculado en la canónica
+        for per_key in ("P1", "P2", "P3", "P4"):
+            nota_per = resultado[per_key.lower()]
+            if nota_per is None:
+                continue
+            existing = conn.execute(
+                "SELECT id, origen FROM calificaciones_periodo "
+                "WHERE estudiante_id=? AND materia=? AND periodo=? AND anio_escolar=?",
+                (est_id, materia, per_key, anio)
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    "INSERT INTO calificaciones_periodo "
+                    "(estudiante_id, profesor_id, materia, periodo, calificacion, "
+                    " anio_escolar, observacion, origen) "
+                    "VALUES (?,?,?,?,?,?,'Calculado por CEs','actividades')",
+                    (est_id, prof_id, materia, per_key, nota_per, anio)
+                )
+            else:
+                origen = existing["origen"] if hasattr(existing, "keys") else existing[1]
+                if origen != "manual":
+                    conn.execute(
+                        "UPDATE calificaciones_periodo "
+                        "SET calificacion=?, profesor_id=?, origen='actividades', "
+                        "    actualizado=datetime('now') WHERE id=?",
+                        (nota_per, prof_id,
+                         existing["id"] if hasattr(existing, "keys") else existing[0])
+                    )
+
+        # Recalcular KPIs del estudiante
+        try:
+            recalcular_kpis_estudiante(conn, est_id, anio)
+        except Exception as _e:
+            logger.warning(f"[CE] recalcular_kpis({est_id}): {_e}")
+
+    return resultado
+
+
+def _recalcular_indicadores(conn, est_id):
+    for col in ['ind_conducta','ind_psico','ind_academico','ind_logros']:
+        try:
+            conn.execute('ALTER TABLE estudiantes ADD COLUMN ' + col + ' TEXT DEFAULT neutro')
+        except Exception:
+            pass
+
+    def score_to_nivel(s):
+        if s <= 60: return 'critico'
+        if s <= 75: return 'alerta'
+        if s <= 89: return 'observacion'
+        return 'neutro'
+
+    ind_conducta  = score_to_nivel(_calcular_indice_conductual(conn, est_id))
+    ind_psico     = score_to_nivel(_calcular_bienestar_emocional(conn, est_id))
+
+    reportes_acad = conn.execute("SELECT severidad FROM reportes WHERE estudiante_id=? AND tipo='academico'", (est_id,)).fetchall()
+    if any(r[0] in ('Alta','Grave') for r in reportes_acad):   ind_academico = 'critico'
+    elif any(r[0] == 'Media' for r in reportes_acad):          ind_academico = 'alerta'
+    elif reportes_acad:                                         ind_academico = 'observacion'
+    else:                                                       ind_academico = 'neutro'
+
+    try:
+        logros = conn.execute("SELECT COUNT(*) FROM logros WHERE estudiante_id=?", (est_id,)).fetchone()[0]
+    except Exception:
+        logros = 0
+    ind_logros = 'destacado' if logros >= 3 else 'activo' if logros >= 1 else 'neutro'
+
+    conn.execute("UPDATE estudiantes SET ind_conducta=?,ind_psico=?,ind_academico=?,ind_logros=? WHERE id=?",
+                 (ind_conducta, ind_psico, ind_academico, ind_logros, est_id))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EXPEDIENTE ESTUDIANTIL — Endpoints
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _parse_ics_date(val):
+    """Convierte DTSTART/DTEND de formato iCal a 'YYYY-MM-DD'."""
+    val = str(val).strip().replace("Z", "")
+    # Puede venir como YYYYMMDD o YYYYMMDDTHHmmss
+    if "T" in val:
+        val = val.split("T")[0]
+    val = val.strip()
+    if len(val) == 8:
+        return f"{val[:4]}-{val[4:6]}-{val[6:8]}"
+    return val
+
+
+def _generar_ics(eventos):
+    """
+    Genera contenido de archivo .ics a partir de lista de eventos.
+    eventos: lista de dicts con keys: fecha, titulo, descripcion
+    """
+    from datetime import datetime as _dt
+    now = _dt.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Axula//C.E.Benito Juarez//ES",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:Calendario C.E. Benito Juárez",
+        "X-WR-TIMEZONE:America/Santo_Domingo",
+    ]
+    for ev in eventos:
+        fecha_ics = ev["fecha"].replace("-", "")
+        uid = f"{ev['fecha']}-{ev.get('tipo','evento')}@axula.bj"
+        titulo    = (ev.get("descripcion") or ev.get("tipo", "Evento")).strip()
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{now}",
+            f"DTSTART;VALUE=DATE:{fecha_ics}",
+            f"DTEND;VALUE=DATE:{fecha_ics}",
+            f"SUMMARY:{titulo}",
+            f"DESCRIPTION:{ev.get('tipo','').upper()} — Calendario C.E. Benito Juárez",
+            "END:VEVENT",
+        ]
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines) + "\r\n"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CONFIGURACIÓN DEL CENTRO — membrete, logo, contacto
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _get_config_centro():
+    """Devuelve la configuración del centro. Nunca falla — usa defaults."""
+    try:
+        with sqlite3.connect(DATABASE, timeout=5) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM configuracion_centro WHERE id=1").fetchone()
+            if row:
+                cfg = dict(DEFAULTS_CENTRO)
+                cfg.update({k: row[k] for k in row.keys() if row[k] is not None})
+                return cfg
+    except Exception:
+        pass
+    return dict(DEFAULTS_CENTRO)
+
+
+CURRICULUM_ARTES = {
+    "Fotografía": {
+        "competencia": "Diseño y Creatividad Multimedia (DCM) — elemento DCM.1.2",
+        "descripcion": "Expresión artística y comunicacional mediante la cámara fotográfica, composición, luz y postproducción digital.",
+        "evidencias": "Serie fotográfica, reportaje visual, portafolio de trabajos con edición digital.",
+        "indicadores": ["Aplica principios de composición y luz en sus fotografías", "Edita imágenes con software digital", "Comunica ideas mediante el lenguaje visual fotográfico"],
+    },
+    "Diseño Básico y Expresión Visual": {
+        "competencia": "Diseño y Creatividad Multimedia (DCM) — elemento DCM.1.1",
+        "descripcion": "Uso de elementos visuales básicos (punto, línea, plano, forma, color, textura) para comunicar mensajes gráficos creativos.",
+        "evidencias": "Composiciones visuales, exploración de técnicas manuales y digitales, portafolio de diseño.",
+        "indicadores": ["Emplea atributos físicos y visuales de la forma", "Crea comunicaciones efectivas mediante figuras y formas", "Aplica método de solución de problemas de diseño"],
+    },
+    "Diseño Web": {
+        "competencia": "Diseño y Creatividad Multimedia (DCM) — elemento DCM.2.1",
+        "descripcion": "Desarrollo de sitios web interactivos usando HTML, CSS y principios de usabilidad y diseño de interfaz.",
+        "evidencias": "Sitio web funcional publicado, wireframes, diseño responsivo.",
+        "indicadores": ["Aplica lenguajes HTML y CSS para maquetar sitios web", "Diseña interfaces considerando usabilidad", "Integra texto, imagen, sonido y animaciones en documentos web"],
+    },
+    "Diseño Gráfico": {
+        "competencia": "Diseño y Creatividad Multimedia (DCM)",
+        "descripcion": "Creación de piezas gráficas digitales para comunicación visual: identidad corporativa, publicidad, editorial.",
+        "evidencias": "Logotipo, afiche, material POP, diseño editorial, mockup digital.",
+        "indicadores": ["Aplica principios del diseño gráfico en producciones digitales", "Maneja software de diseño vectorial y edición de imágenes", "Crea identidad visual coherente para empresas o eventos"],
+    },
+    "Publicidad y Creatividad": {
+        "competencia": "Apreciación y Expresión del Diseño y la Comunicación Multimediática (ADCM) — elemento ADCM.2.1",
+        "descripcion": "Estrategia creativa publicitaria: briefing, concepto creativo, selección de medios, campaña integrada.",
+        "evidencias": "Campaña publicitaria, storyboard de anuncio, estrategia de redes sociales.",
+        "indicadores": ["Diseña estrategias de comunicación para productos o servicios", "Crea piezas publicitarias creativas y efectivas", "Selecciona medios adecuados según el público objetivo"],
+    },
+    "Producción Audiovisual": {
+        "competencia": "Diseño y Creatividad Multimedia (DCM) — elemento DCM.3.1",
+        "descripcion": "Preproducción, producción y postproducción de contenido audiovisual: cortometrajes, spots, documentales.",
+        "evidencias": "Video editado y publicado, guion técnico, storyboard, plan de producción.",
+        "indicadores": ["Planifica y ejecuta proyectos audiovisuales completos", "Aplica técnicas de edición de video", "Integra audio, imagen y efectos en producciones audiovisuales"],
+    },
+    "Historia del Arte Universal y la Estética Digital": {
+        "competencia": "Artístico-Cultural (A.C.)",
+        "descripcion": "Análisis crítico de movimientos artísticos, estética contemporánea y arte digital en contexto global y dominicano.",
+        "evidencias": "Ensayo analítico, presentación comparativa, análisis de obra digital.",
+        "indicadores": ["Relaciona movimientos artísticos históricos con la producción contemporánea", "Analiza obras de arte con vocabulario estético apropiado", "Valora el aporte del arte dominicano en el contexto universal"],
+    },
+    "Redes Sociales": {
+        "competencia": "Apreciación y Expresión del Diseño y la Comunicación Multimediática (ADCM) — elemento ADCM.2.1",
+        "descripcion": "Gestión estratégica de plataformas digitales: contenido, comunidad, métricas y marketing digital.",
+        "evidencias": "Plan de contenido para red social, análisis de métricas, campaña digital.",
+        "indicadores": ["Crea contenido estratégico para plataformas digitales", "Analiza el impacto de las redes sociales en la sociedad", "Gestiona comunidades digitales con criterio comunicacional"],
+    },
+    "Medios de Comunicación": {
+        "competencia": "Apreciación y Expresión del Diseño y la Comunicación Multimediática (ADCM) — elemento ADCM.1.1",
+        "descripcion": "Análisis del ecosistema mediático: historia, tipos de medios, plan de medios y gestión comunicacional.",
+        "evidencias": "Plan de medios, análisis comparativo de medios, propuesta de campaña multicanal.",
+        "indicadores": ["Identifica características y función de los distintos medios de comunicación", "Diseña estrategias de selección de medios según objetivos", "Evalúa críticamente el impacto de los medios en la sociedad"],
+    },
+}
+
+def _construir_prompt_asignacion(tipo, materia, grado, mencion, titulo=""):
+    """
+    Genera el prompt para producir un documento de asignación MINERD completo:
+    mandato, preguntas orientadoras, producto esperado, fuentes y rúbrica/instrumento.
+
+    El currículo oficial se busca vía core.curriculo.get_asignatura(), que
+    despacha a la mención correcta (Multimedia/Artes Visuales/Música/Teatro) —
+    mismo mecanismo que ya usan las funciones de core/ia.py. Antes leía
+    CURRICULUM_ARTES con nombres de campo (competencia/descripcion/evidencias)
+    que nunca coincidían con el esquema real, así que esta función siempre
+    generaba el prompt sin ningún contexto curricular real.
+    """
+    from core.curriculo import get_asignatura
+    curriculum = get_asignatura(mencion, materia)
+    competencia = curriculum.get("elemento_competencia", "")
+    # "indicadores" solo existe en el esquema de Multimedia; para las demás
+    # menciones el equivalente más cercano son los RAE (Resultados de
+    # Aprendizaje Esperados) — mismo fallback que usa core/ia.py.
+    indicadores = curriculum.get("indicadores", curriculum.get("rae", []))
+    ind_str = "; ".join(indicadores[:3]) if indicadores else ""
+
+    tipo_guia = {
+        "tarea":        "TAREA individual — práctica o investigación de corto alcance",
+        "examen":       "EXAMEN/DEMOSTRACIÓN — prueba de dominio técnico o conceptual",
+        "proyecto":     "PROYECTO creativo — proceso y producto con múltiples etapas",
+        "trabajo_final":"TRABAJO FINAL integrador — evidencia acumulada del período",
+    }.get(tipo, "actividad evaluativa")
+
+    instrumento_guia = {
+        "tarea":        "Lista de cotejo (Sí/No/Parcial) para verificar requisitos técnicos",
+        "examen":       "Escala de estimación (1-4) para evaluar dominio técnico",
+        "proyecto":     "Rúbrica analítica (Avanzado/Satisfactorio/En desarrollo/Inicial)",
+        "trabajo_final":"Rúbrica analítica con énfasis en proceso y producto final",
+    }.get(tipo, "Rúbrica analítica")
+
+    titulo_ctx = f'Título: "{titulo}"' if titulo else ""
+
+    return f"""Eres un experto en diseño curricular del bachillerato dominicano (MINERD Ordenanza 04-2023), especializado en la Modalidad en Artes — Mención {mencion}.
+
+Genera un documento de asignación COMPLETO y OFICIAL para:
+- Tipo: {tipo_guia}
+- Materia: {materia} | Grado: {grado} | Mención: {mencion}
+- {titulo_ctx}
+- Competencia curricular: {competencia}
+- Indicadores de logro: {ind_str}
+- Instrumento recomendado: {instrumento_guia}
+
+REGLAS:
+1. El MANDATO debe seguir la fórmula MINERD: VERBO DE ACCIÓN + OBJETO + CONDICIÓN/PROPÓSITO
+   Ejemplo: "Diseña una serie fotográfica de 6 imágenes que documente una tradición cultural dominicana, aplicando los principios de composición aprendidos en el período."
+2. Las PREGUNTAS ORIENTADORAS son ABP/ABPr — conectan el saber con la realidad del estudiante
+3. Las FUENTES deben ser reales y específicas para {materia} (no inventar URLs)
+4. El instrumento debe usar 4 niveles: Avanzado (100%), Satisfactorio (75%), En desarrollo (50%), Inicial (25%)
+5. Adapta TODO al contexto de {materia} — nada genérico
+
+Responde ÚNICAMENTE con JSON válido, sin texto adicional, sin backticks:
+{{
+  "titulo": "título conciso y descriptivo de la asignación",
+  "descripcion": "2-3 oraciones describiendo qué aprenderá el estudiante y por qué es relevante para su formación en {mencion}",
+  "mandato": "instrucción principal en formato MINERD: verbo + objeto + condición, 1-3 oraciones",
+  "producto_esperado": "descripción concreta del entregable: formato, extensión, modalidad de entrega",
+  "preguntas": [
+    "¿Pregunta orientadora 1 — conecta el tema con la realidad?",
+    "¿Pregunta orientadora 2 — desafía el pensamiento crítico?",
+    "¿Pregunta orientadora 3 — orienta hacia el producto?"
+  ],
+  "fuentes": [
+    {{"titulo": "nombre de la fuente", "referencia": "URL o descripción bibliográfica", "tipo": "documentacion|tutorial|visual|libro"}},
+    {{"titulo": "nombre de la fuente", "referencia": "URL o descripción bibliográfica", "tipo": "documentacion|tutorial|visual|libro"}},
+    {{"titulo": "nombre de la fuente", "referencia": "URL o descripción bibliográfica", "tipo": "documentacion|tutorial|visual|libro"}}
+  ],
+  "instrumento_tipo": "rubrica_analitica",
+  "criterios": [
+    {{
+      "nombre": "nombre del criterio",
+      "puntaje_max": 25,
+      "descripcion": "qué evalúa exactamente",
+      "niveles": {{
+        "avanzado": "descriptor nivel 4 — excelente",
+        "satisfactorio": "descriptor nivel 3 — cumple expectativas",
+        "en_desarrollo": "descriptor nivel 2 — en proceso",
+        "inicial": "descriptor nivel 1 — necesita apoyo"
+      }}
+    }},
+    {{"nombre": "criterio 2", "puntaje_max": 25, "descripcion": "...", "niveles": {{"avanzado":"","satisfactorio":"","en_desarrollo":"","inicial":""}}}},
+    {{"nombre": "criterio 3", "puntaje_max": 25, "descripcion": "...", "niveles": {{"avanzado":"","satisfactorio":"","en_desarrollo":"","inicial":""}}}},
+    {{"nombre": "criterio 4", "puntaje_max": 25, "descripcion": "...", "niveles": {{"avanzado":"","satisfactorio":"","en_desarrollo":"","inicial":""}}}}
+  ]
+}}
+
+Los 4 criterios deben sumar 100 puntos. Adapta los descriptores de niveles a la naturaleza de {materia}."""
+
+
+def _periodo_bloqueado(periodo: str, anio_escolar: str = None) -> bool:
+    """Retorna True si el período está cerrado para edición de notas."""
+    if not anio_escolar:
+        anio_escolar = _anio_escolar_actual()
+    try:
+        with sqlite3.connect(DATABASE, timeout=5) as conn:
+            row = conn.execute(
+                "SELECT id FROM periodos_bloqueados WHERE periodo=? AND anio_escolar=?",
+                (periodo, anio_escolar)
+            ).fetchone()
+            return row is not None
+    except Exception:
+        return False
+
+
+def _get_periodos_estado(anio_escolar: str = None) -> dict:
+    """Retorna dict {P1: bool, P2: bool, P3: bool, P4: bool} con estado de bloqueo."""
+    if not anio_escolar:
+        anio_escolar = _anio_escolar_actual()
+    estado = {"P1": False, "P2": False, "P3": False, "P4": False}
+    try:
+        with sqlite3.connect(DATABASE, timeout=10) as conn:
+            rows = conn.execute(
+                "SELECT periodo FROM periodos_bloqueados WHERE anio_escolar=?",
+                (anio_escolar,)
+            ).fetchall()
+            for r in rows:
+                if r[0] in estado:
+                    estado[r[0]] = True
+    except Exception:
+        pass
+    return estado
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  NORMALIZACIÓN DE MATERIAS — deduplicación y filtro por profesor
+# ══════════════════════════════════════════════════════════════════════════════
+
+_MATERIA_SINONIMOS = {
+    # Abreviaciones y variantes conocidas del C.E. Benito Juárez
+    "fihr":                                              "formacion integral humana y religiosa",
+    "formacion integral humana y religiosa":             "formacion integral humana y religiosa",
+    "lenguaje visual y artesanal":                       "lenguaje visual y principios del diseno artesanal",
+    "lenguaje visual, dibujo y creacion de personajes":  "lenguaje visual y principios del diseno artesanal",
+    "lenguaje musical":                                  "lenguaje musical teoria y entrenamiento",
+    "lenguaje musical, teoria y entrenamiento":          "lenguaje musical teoria y entrenamiento",
+    "lenguaje musical, teoria y entrenamineto":          "lenguaje musical teoria y entrenamiento",
+    "intro. a la historia del arte universal y dom":          "introduccion a la historia del arte universal y dominicano",
+    "historia del arte universal y dominicano":               "introduccion a la historia del arte universal y dominicano",
+    # Contaminación cross-mención: materia de TEATRO asignada a alumnos MULTIMEDIA/MÚSICA
+    "historia del arte universal y estetica digital":         "introduccion a la historia del arte universal y dominicano",
+    "historia del arte universal y estetica digital i":       "introduccion a la historia del arte universal y dominicano",
+    "idioma ingles":                                     "ingles",
+    "ingles":                                            "ingles",
+}
+
+
+def _normalizar_clave_materia(nombre):
+    """Clave de comparación: sin acentos, minúsculas, sin puntuación final, con mapa de sinónimos."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", (nombre or "").strip().lower().rstrip("."))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = " ".join(s.split())
+    return _MATERIA_SINONIMOS.get(s, s)
+
+
+def _dedup_materias(rows):
+    """
+    Deduplica materias con el mismo nombre en distinta capitalización, acentos distintos
+    o con typos menores (fuzzy ≥ 0.88).
+    Regla de merge: toma el entry con más períodos con nota y promedio mayor.
+    Para el nombre de display, prefiere Proper Case sobre TODO MAYÚSCULAS.
+    """
+    from collections import OrderedDict
+    from difflib import SequenceMatcher
+
+    def _merge_entries(entradas):
+        def score_datos(e):
+            periodos_con_nota = sum(1 for p in ("p1","p2","p3","p4") if e.get(p) and e[p] > 0)
+            return (periodos_con_nota, e.get("promedio") or 0)
+        mejor = max(entradas, key=score_datos)
+        for otra in entradas:
+            if otra is mejor:
+                continue
+            for p in ("p1","p2","p3","p4"):
+                if not (mejor.get(p) and mejor[p] > 0) and (otra.get(p) and otra[p] > 0):
+                    mejor[p] = otra[p]
+        periodos_vals = [mejor[p] for p in ("p1","p2","p3","p4") if mejor.get(p) and mejor[p] > 0]
+        if periodos_vals:
+            mejor["promedio"] = round(sum(periodos_vals) / len(periodos_vals), 2)
+        nombre_display = mejor["materia"]
+        for e in entradas:
+            if e["materia"] != e["materia"].upper():
+                nombre_display = e["materia"]
+                break
+            if len(e["materia"]) > len(nombre_display):
+                nombre_display = e["materia"]
+        mejor["materia"] = nombre_display
+        return mejor
+
+    grupos = OrderedDict()
+    for r in rows:
+        clave = _normalizar_clave_materia(r["materia"])
+        grupos.setdefault(clave, []).append(r)
+
+    candidatos = []
+    for clave, entradas in grupos.items():
+        merged = _merge_entries(entradas) if len(entradas) > 1 else entradas[0]
+        candidatos.append((clave, merged))
+
+    usados = [False] * len(candidatos)
+    resultado = []
+    for i, (clave_i, entry_i) in enumerate(candidatos):
+        if usados[i]:
+            continue
+        grupo = [entry_i]
+        for j, (clave_j, entry_j) in enumerate(candidatos):
+            if j <= i or usados[j]:
+                continue
+            if SequenceMatcher(None, clave_i, clave_j).ratio() >= 0.88:
+                grupo.append(entry_j)
+                usados[j] = True
+        resultado.append(_merge_entries(grupo) if len(grupo) > 1 else grupo[0])
+        usados[i] = True
+
+    return resultado
+
+
+# ── H12: CATÁLOGO DE MATERIAS ────────────────────────────────────────────────
+
+def _norm_materia(nombre):
+    """Normaliza nombre de materia: minúsculas, sin acentos, sin espacios dobles."""
+    import unicodedata
+    s = (nombre or "").strip().lower()
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    return " ".join(s.split())
+
+
+def resolver_materia_id(conn, nombre):
+    """
+    Busca en el catálogo `materias` el ID canónico para un nombre dado.
+    Estrategia: exacto por nombre_norm → fuzzy ≥ 0.82 → None (no registrado).
+    Si encuentra por fuzzy, devuelve el id del mejor match.
+    """
+    from difflib import SequenceMatcher
+    norm = _norm_materia(nombre)
+    # 1. Match exacto
+    row = conn.execute(
+        "SELECT id, nombre_canonico FROM materias WHERE nombre_norm=? AND activa=1",
+        (norm,)
+    ).fetchone()
+    if row:
+        return row["id"]
+    # 2. Match fuzzy
+    candidatos = conn.execute(
+        "SELECT id, nombre_canonico, nombre_norm FROM materias WHERE activa=1"
+    ).fetchall()
+    mejor_id, mejor_ratio = None, 0.0
+    for c in candidatos:
+        r = SequenceMatcher(None, norm, c["nombre_norm"]).ratio()
+        if r > mejor_ratio:
+            mejor_ratio, mejor_id = r, c["id"]
+    return mejor_id if mejor_ratio >= 0.82 else None
+
+
+def sembrar_catalogo_materias(conn):
+    """
+    Genera el catálogo inicial de materias desde los nombres distintos ya
+    presentes en materias_calificaciones y calificaciones_periodo.
+    Idempotente: solo inserta si el nombre_norm no existe.
+    """
+    nombres = set()
+    for tabla in ("materias_calificaciones", "calificaciones_periodo"):
+        try:
+            rows = conn.execute(f"SELECT DISTINCT materia FROM {tabla} WHERE materia IS NOT NULL").fetchall()
+            nombres.update(r["materia"].strip() for r in rows if r["materia"] and r["materia"].strip())
+        except Exception:
+            pass
+    insertados = 0
+    for nombre in sorted(nombres):
+        norm = _norm_materia(nombre)
+        if not norm:
+            continue
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO materias (nombre_canonico, nombre_norm) VALUES (?, ?)",
+                (nombre, norm)
+            )
+            insertados += 1
+        except Exception:
+            pass
+    return insertados
+
+
+# ── ARRANQUE ─────────────────────────────────────────────────────────────────
+
+

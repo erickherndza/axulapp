@@ -1,0 +1,2131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asistente Docente — Planificación Multimedia</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #181c27;
+            --surface2: #1e2335;
+            --border: #2a3050;
+            --accent: #e8b84b;
+            --accent2: #4b7fe8;
+            --danger: #e85b4b;
+            --success: #4be87a;
+            --info: #4bbfe8;
+            --purple: #b44be8;
+            --text: #eef0f7;
+            --text-muted: #7a82a0;
+            --font-display: 'Syne', sans-serif;
+            --font-body: 'DM Sans', sans-serif;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background:var(--bg); color:var(--text); font-family:var(--font-body); font-size:14px; min-height:100vh; }
+
+        /* HEADER */
+        header {
+            background:var(--surface); border-bottom:1px solid var(--border);
+            padding:0 32px; display:flex; align-items:center;
+            justify-content:space-between; height:64px; position:sticky; top:0; z-index:100;
+        }
+        .logo { display:flex; align-items:center; gap:12px; text-decoration:none; color:inherit; }
+        .logo-icon { width:36px; height:36px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; }
+        .logo-text { font-family:var(--font-display); font-weight:800; font-size:17px; }
+        .logo-text span { color:var(--accent); }
+        .back-btn { display:flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--border); color:var(--text-muted); padding:9px 16px; border-radius:8px; font-size:13px; cursor:pointer; text-decoration:none; transition:all .2s; }
+        .back-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+        main { max-width:1100px; margin:0 auto; padding:32px; }
+
+        /* PAGE TITLE */
+        .page-title { margin-bottom:28px; }
+        .page-title h1 { font-family:var(--font-display); font-size:28px; font-weight:800; margin-bottom:6px; }
+        .page-title p { color:var(--text-muted); font-size:14px; }
+
+        /* TABS */
+        .tabs {
+            display:flex; gap:4px; background:var(--surface2);
+            padding:5px; border-radius:12px; margin-bottom:28px;
+            border:1px solid var(--border);
+        }
+        .tab-btn {
+            flex:1; padding:10px 16px; border:none; background:transparent;
+            color:var(--text-muted); font-family:var(--font-display);
+            font-weight:600; font-size:12px; border-radius:9px; cursor:pointer;
+            transition:all .2s; display:flex; align-items:center; justify-content:center; gap:7px;
+        }
+        .tab-btn.active { background:var(--surface); color:var(--text); box-shadow:0 2px 8px rgba(0,0,0,.3); }
+        .tab-btn:hover:not(.active) { color:var(--text); }
+
+        /* PANEL */
+        .panel { display:none; animation: fadeUp .3s ease both; }
+        .panel.active { display:block; }
+
+        @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+        /* GRID */
+        .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+        .form-grid.col3 { grid-template-columns:1fr 1fr 1fr; }
+        .form-full { grid-column:1/-1; }
+
+        /* FORM ELEMENTS */
+        .form-group { display:flex; flex-direction:column; gap:7px; }
+        .form-group label { font-size:11px; font-weight:600; letter-spacing:.8px; text-transform:uppercase; color:var(--text-muted); }
+        .form-group select, .form-group input, .form-group textarea {
+            background:var(--surface2); border:1px solid var(--border);
+            color:var(--text); padding:11px 14px; border-radius:9px;
+            font-family:var(--font-body); font-size:13px; outline:none; transition:border-color .2s;
+        }
+        .form-group select:focus, .form-group input:focus, .form-group textarea:focus { border-color:var(--accent); }
+        .form-group textarea { resize:vertical; min-height:80px; line-height:1.6; }
+        select option { background:var(--surface2); }
+
+        /* CURRICULO PREVIEW */
+        .curriculo-box {
+            background:var(--surface2); border:1px solid var(--border);
+            border-radius:12px; padding:16px; margin-bottom:20px;
+            display:none;
+        }
+        .curriculo-box.show { display:block; }
+        .curriculo-title { font-family:var(--font-display); font-size:12px; font-weight:700; color:var(--accent); letter-spacing:1px; text-transform:uppercase; margin-bottom:12px; }
+        .curriculo-seccion { margin-bottom:10px; }
+        .curriculo-seccion-title { font-size:11px; font-weight:600; color:var(--text-muted); letter-spacing:.6px; text-transform:uppercase; margin-bottom:5px; }
+        .curriculo-tag {
+            display:inline-block; background:var(--surface);
+            border:1px solid var(--border); padding:3px 9px;
+            border-radius:4px; font-size:11px; margin:2px 3px 2px 0;
+            color:var(--text-muted);
+        }
+
+        /* INDICADORES */
+        .indicador-item {
+            display:flex; align-items:flex-start; gap:8px; padding:8px 12px;
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:8px; cursor:pointer; transition:all .2s;
+            margin-bottom:6px;
+        }
+        .indicador-item:hover { border-color:var(--accent); }
+        .indicador-item.selected { border-color:var(--accent); background:rgba(232,184,75,.08); }
+        .indicador-check { font-size:11px; margin-top:1px; color:var(--text-muted); flex-shrink:0; }
+        .indicador-item.selected .indicador-check { color:var(--accent); }
+        .indicador-texto { font-size:12px; line-height:1.5; }
+
+        /* GENERATE BTN */
+        .gen-btn {
+            width:100%; background:var(--accent); color:#000; border:none;
+            padding:14px; border-radius:10px; font-family:var(--font-display);
+            font-weight:700; font-size:14px; cursor:pointer; transition:opacity .2s;
+            display:flex; align-items:center; justify-content:center; gap:9px;
+        }
+        .gen-btn:hover { opacity:.85; }
+        .gen-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+        /* RESULTADO */
+        .resultado-box {
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:14px; padding:24px; margin-top:20px;
+            display:none;
+        }
+        .resultado-box.show { display:block; animation:fadeUp .4s ease both; }
+        .resultado-header {
+            display:flex; align-items:center; justify-content:space-between;
+            margin-bottom:18px; padding-bottom:14px;
+            border-bottom:1px solid var(--border);
+        }
+        .resultado-badge {
+            display:inline-flex; align-items:center; gap:6px;
+            background:var(--surface2); border:1px solid var(--border);
+            padding:4px 12px; border-radius:20px; font-size:10px;
+            font-weight:700; letter-spacing:.8px; text-transform:uppercase;
+            color:var(--text-muted);
+        }
+        .copy-btn {
+            background:transparent; border:1px solid var(--border);
+            color:var(--text-muted); padding:7px 14px; border-radius:7px;
+            font-size:11px; cursor:pointer; transition:all .2s;
+        }
+        .copy-btn:hover { border-color:var(--success); color:var(--success); }
+        .resultado-content { line-height:1.8; font-size:13.5px; }
+
+        /* SECCIONES DEL RESULTADO */
+        .res-seccion { margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+        .res-seccion:first-child { margin-top:0; padding-top:0; border-top:none; }
+        .res-titulo {
+            font-family:var(--font-display); font-size:11px; font-weight:700;
+            letter-spacing:1px; text-transform:uppercase; margin-bottom:10px;
+        }
+        .res-cuerpo { color:var(--text); font-size:13px; line-height:1.8; }
+        .res-cuerpo ul { padding-left:20px; }
+        .res-cuerpo li { margin-bottom:5px; }
+
+        /* LOADING */
+        .loading-box { text-align:center; padding:40px 24px; display:none; }
+        .loading-box.show { display:block; }
+        .spinner { width:24px; height:24px; border:2px solid rgba(232,184,75,.2); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; display:inline-block; margin-bottom:12px; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        .loading-txt { font-size:13px; color:var(--text-muted); }
+
+        /* CURRICULO CARDS */
+        .materias-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:24px; }
+        .materia-card {
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:14px; padding:20px; cursor:pointer; transition:all .2s;
+        }
+        .materia-card:hover { border-color:var(--accent); transform:translateY(-2px); }
+        .materia-card.selected { border-color:var(--accent); background:rgba(232,184,75,.06); }
+        .materia-emoji { font-size:32px; margin-bottom:10px; }
+        .materia-nombre { font-family:var(--font-display); font-size:16px; font-weight:700; margin-bottom:4px; }
+        .materia-comp { font-size:11px; color:var(--text-muted); line-height:1.4; }
+        .materia-horas { margin-top:10px; font-size:11px; background:var(--surface2); border:1px solid var(--border); display:inline-block; padding:2px 8px; border-radius:4px; color:var(--text-muted); }
+
+        /* ERROR */
+        .error-box { background:rgba(232,91,75,.08); border:1px solid rgba(232,91,75,.25); border-radius:10px; padding:14px 18px; margin-top:16px; font-size:12px; color:var(--danger); display:none; }
+        .error-box.show { display:block; }
+
+        .historial-item {
+        background:var(--surface); border:1px solid var(--border);
+        border-radius:12px; padding:16px 18px; margin-bottom:10px;
+        cursor:pointer; transition:all .2s;
+    }
+    .historial-item:hover { border-color:var(--accent); transform:translateY(-1px); }
+
+    @media(max-width:768px) {
+            .form-grid, .form-grid.col3, .materias-grid { grid-template-columns:1fr; }
+            main { padding:16px; }
+            header { padding:0 16px; }
+            .tabs { flex-direction:column; }
+        }
+    </style>
+
+<!-- CSRF Token — auto-incluido en todos los fetch() POST/PATCH/DELETE -->
+<script>
+(function() {
+  var CSRF_TOKEN = "{{ csrf_token }}";
+  var _originalFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    var method = (opts.method || "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      opts.headers = opts.headers || {};
+      // Soporta tanto Headers object como plain object
+      if (opts.headers instanceof Headers) {
+        opts.headers.set("X-CSRF-Token", CSRF_TOKEN);
+      } else {
+        opts.headers["X-CSRF-Token"] = CSRF_TOKEN;
+      }
+    }
+    return _originalFetch.apply(this, [url, opts]);
+  };
+})();
+</script>
+
+    <link rel="stylesheet" href="/static/theme.css">
+    <script src="/static/theme.js"></script>
+    <script src="/static/js/planificacion.js"></script>
+</head>
+<body>
+
+<header>
+    <a href="/" class="logo">
+        <div class="logo-icon">🎨</div>
+        <div>
+            <div class="logo-text">Axula</div>
+        </div>
+    </a>
+    <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> Dashboard</a>
+</header>
+
+<main>
+    <div class="page-title">
+        <h1>🧑‍🏫 Asistente Docente con IA</h1>
+        <p>Planificaciones, rúbricas y estrategias alineadas al currículo oficial MINERD — Modalidad en Artes — C.E. Benito Juárez</p>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="setTab('planificacion', this)">
+            <i class="fas fa-clipboard-list"></i> Planificación de Clase
+        </button>
+        <button class="tab-btn" onclick="setTab('rubrica', this)">
+            <i class="fas fa-star-half-alt"></i> Crear Rúbrica
+        </button>
+        <button class="tab-btn" onclick="setTab('estrategia', this)">
+            <i class="fas fa-lightbulb"></i> Estrategias Didácticas
+        </button>
+        <button class="tab-btn" onclick="setTab('abp', this); cargarGuardadasABP()">
+            <i class="fas fa-file-invoice"></i> Plantilla ABP MINERD
+        </button>
+        <button class="tab-btn" onclick="setTab('curriculo', this)">
+            <i class="fas fa-book-open"></i> Ver Currículo MINERD
+        </button>
+        <button class="tab-btn" onclick="setTab('historial', this); cargarHistorial()">
+            <i class="fas fa-clock-rotate-left"></i> Historial
+        </button>
+    </div>
+
+    <!-- ═══ TAB 1: PLANIFICACIÓN ═══ -->
+    <div id="panel-planificacion" class="panel active">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Mención</label>
+                <select id="p-mencion" onchange="actualizarMaterias('p')">
+                    <option value="MULTIMEDIA">🖥️ Multimedia</option>
+                    <option value="ARTES VISUALES">🎨 Artes Visuales</option>
+                    <option value="MÚSICA">🎵 Música</option>
+                    <option value="TEATRO">🎭 Teatro</option>
+                    <option value="DANZA">💃 Danza</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Asignatura</label>
+                <select id="p-materia" onchange="window._curriculoCache=null; cargarCurriculo('p-materia', 'p-curriculo'); if(window.actualizarTemas) actualizarTemas();">
+                    <option value="">Selecciona una materia...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Grado</label>
+                <select id="p-grado" onchange="actualizarMaterias('p')">
+                    <option value="4to">4to (Primer año mención)</option>
+                    <option value="5to">5to (Segundo año mención)</option>
+                    <option value="6to">6to (Tercer año mención)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Preview del currículo -->
+        <div id="p-curriculo" class="curriculo-box"></div>
+
+        <div class="form-grid col3">
+            <div class="form-group form-full">
+                <label>Tema específico a desarrollar</label>
+                <input type="text" id="p-tema" placeholder="Ej: Manejo del diafragma y la profundidad de campo...">
+            </div>
+            <div class="form-group">
+                <label>Duración (clases de 45 min)</label>
+                <select id="p-duracion">
+                    <option value="1">1 clase (45 min)</option>
+                    <option value="2" selected>2 clases (90 min)</option>
+                    <option value="3">3 clases (135 min)</option>
+                    <option value="4">4 clases (3 horas)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Nivel del grupo</label>
+                <select id="p-nivel">
+                    <option value="Básico">Básico — requiere más apoyo</option>
+                    <option value="Intermedio" selected>Intermedio — ritmo regular</option>
+                    <option value="Avanzado">Avanzado — ritmo acelerado</option>
+                    <option value="Mixto">Mixto — niveles variados</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="gen-btn" onclick="generarPlanificacion()">
+            <i class="fas fa-brain"></i> Generar Planificación con LLaMA 3
+        </button>
+
+        <div id="p-loading" class="loading-box">
+            <div class="spinner"></div>
+            <div class="loading-txt" id="p-loading-txt">Generando planificación...</div>
+        </div>
+        <div id="p-error" class="error-box"></div>
+        <div id="p-resultado" class="resultado-box">
+            <div class="resultado-header">
+                <span class="resultado-badge" id="badge-planificacion">✦ cargando modelo...</span>
+                <div style="display:flex; gap:8px;">
+                    <button class="copy-btn" onclick="copiarResultado('p-content')"><i class="fas fa-copy"></i> Copiar</button>
+                    <button class="copy-btn" id="p-guardar-btn" onclick="guardarDesdeResultado()"
+                        style="border-color:var(--success); color:var(--success);">
+                        <i class="fas fa-bookmark"></i> Guardar
+                    </button>
+                </div>
+            </div>
+            <div id="p-content" class="resultado-content"></div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB 2: RÚBRICA ═══ -->
+    <div id="panel-rubrica" class="panel">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Mención</label>
+                <select id="r-mencion" onchange="actualizarMaterias('r')">
+                    <option value="MULTIMEDIA">🖥️ Multimedia</option>
+                    <option value="ARTES VISUALES">🎨 Artes Visuales</option>
+                    <option value="MÚSICA">🎵 Música</option>
+                    <option value="TEATRO">🎭 Teatro</option>
+                    <option value="DANZA">💃 Danza</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Asignatura</label>
+                <select id="r-materia" onchange="cargarIndicadores()">
+                    <option value="">Selecciona una materia...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Grado</label>
+                <select id="r-grado">
+                    <option value="4to">4to</option>
+                    <option value="5to">5to</option>
+                    <option value="6to">6to</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:16px;">
+            <label>Indicador de Logro a evaluar (selecciona uno)</label>
+            <div id="r-indicadores" style="margin-top:6px;">
+                <div style="color:var(--text-muted); font-size:12px; padding:12px; background:var(--surface2); border-radius:8px;">
+                    Selecciona una materia para ver los indicadores de logro oficiales del MINERD.
+                </div>
+            </div>
+        </div>
+
+        <button class="gen-btn" onclick="generarRubrica()">
+            <i class="fas fa-table"></i> Generar Rúbrica con LLaMA 3
+        </button>
+
+        <div id="r-loading" class="loading-box">
+            <div class="spinner"></div>
+            <div class="loading-txt">Construyendo rúbrica de evaluación...</div>
+        </div>
+        <div id="r-error" class="error-box"></div>
+        <div id="r-resultado" class="resultado-box">
+            <div class="resultado-header">
+                <span class="resultado-badge" id="badge-rubrica">✦ cargando modelo...</span>
+                <button class="copy-btn" onclick="copiarResultado('r-content')"><i class="fas fa-copy"></i> Copiar</button>
+            </div>
+            <div id="r-content" class="resultado-content"></div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB 3: ESTRATEGIAS ═══ -->
+    <div id="panel-estrategia" class="panel">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Mención</label>
+                <select id="e-mencion" onchange="actualizarMaterias('e')">
+                    <option value="MULTIMEDIA">🖥️ Multimedia</option>
+                    <option value="ARTES VISUALES">🎨 Artes Visuales</option>
+                    <option value="MÚSICA">🎵 Música</option>
+                    <option value="TEATRO">🎭 Teatro</option>
+                    <option value="DANZA">💃 Danza</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Grado</label>
+                <select id="e-grado" onchange="actualizarMaterias('e')">
+                    <option value="4to">4to (Primer año mención)</option>
+                    <option value="5to">5to (Segundo año mención)</option>
+                    <option value="6to">6to (Tercer año mención)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Asignatura</label>
+                <select id="e-materia">
+                    <option value="">Selecciona una materia...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Perfil del grupo</label>
+                <input type="text" id="e-perfil" placeholder="Ej: 28 estudiantes, nivel básico, poca motivación...">
+            </div>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label>Dificultad o problema que quieres resolver</label>
+            <textarea id="e-problema" placeholder="Ej: Los estudiantes no comprenden la regla de los tercios en fotografía y sus composiciones quedan desequilibradas..."></textarea>
+        </div>
+
+        <button class="gen-btn" onclick="generarEstrategia()">
+            <i class="fas fa-lightbulb"></i> Generar Estrategias con LLaMA 3
+        </button>
+
+        <div id="e-loading" class="loading-box">
+            <div class="spinner"></div>
+            <div class="loading-txt">Buscando estrategias pedagógicas...</div>
+        </div>
+        <div id="e-error" class="error-box"></div>
+        <div id="e-resultado" class="resultado-box">
+            <div class="resultado-header">
+                <span class="resultado-badge" id="badge-estrategia">✦ cargando modelo...</span>
+                <button class="copy-btn" onclick="copiarResultado('e-content')"><i class="fas fa-copy"></i> Copiar</button>
+            </div>
+            <div id="e-content" class="resultado-content"></div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB 4: CURRÍCULO ═══ -->
+    <div id="panel-curriculo" class="panel">
+        <p style="color:var(--text-muted); font-size:13px; margin-bottom:20px;">
+            Contenidos oficiales del <strong style="color:var(--text);">MINERD</strong> del <strong style="color:var(--text);">Plan de Estudio Benito Juárez</strong> — Segundo Ciclo, todas las menciones.
+        </p>
+
+        <!-- Selector de mención -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Mención:</span>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;" id="mencion-tabs-curriculo">
+            <button class="chip active" onclick="planBJsetMencion('MULTIMEDIA',this)">🎬 Multimedia</button>
+            <button class="chip"        onclick="planBJsetMencion('TEATRO',this)">🎭 Teatro</button>
+            <button class="chip"        onclick="planBJsetMencion('MUSICA',this)">🎵 Música</button>
+            <button class="chip"        onclick="planBJsetMencion('VISUAL',this)">🎨 Artes Visuales</button>
+          </div>
+          <div style="margin-left:auto;">
+            <select id="filtro-grado-plan" style="background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:8px;font-size:12px;" onchange="planBJrender(); renderMateriasCards()">
+              <option value="">Todos los grados</option>
+              <option value="4to">4to Grado</option>
+              <option value="5to">5to Grado</option>
+              <option value="6to">6to Grado</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Plan de horas por grado (dinámico) -->
+        <div id="plan-bj-grid" style="margin-bottom:20px;"></div>
+
+        <!-- Currículo detallado por mención (dinámico) -->
+        <div id="materias-cards-grid" style="margin-bottom:12px;"></div>
+
+        <div id="c-detalle" class="curriculo-box show" style="display:none;">
+        </div>
+    </div>
+    <!-- ═══ TAB 5: HISTORIAL ═══ -->
+    <div id="panel-historial" class="panel">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+            <p style="color:var(--text-muted); font-size:13px;">
+                Planificaciones guardadas — haz clic en una para verla completa.
+            </p>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.6px;">Filtrar por estudiante:</label>
+                <input type="text" id="h-filtro" placeholder="Nombre..." oninput="filtrarHistorial()"
+                    style="background:var(--surface2); border:1px solid var(--border); color:var(--text);
+                           padding:8px 12px; border-radius:8px; font-size:12px; outline:none; width:160px;">
+            </div>
+        </div>
+        <div id="h-lista"></div>
+        <div id="h-detalle" style="display:none; margin-top:20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+                <span style="font-family:var(--font-display); font-weight:700; font-size:14px;">Detalle de Planificación</span>
+                <button onclick="cerrarDetalle()"
+                    style="background:transparent; border:1px solid var(--border); color:var(--text-muted);
+                           padding:6px 14px; border-radius:7px; font-size:12px; cursor:pointer;">
+                    ✕ Cerrar
+                </button>
+            </div>
+            <div id="h-detalle-content" class="resultado-box show" style="margin-top:0;">
+                <div class="resultado-header">
+                    <span id="h-detalle-badge" class="resultado-badge"></span>
+                    <button class="copy-btn" onclick="copiarResultado('h-detalle-texto')">
+                        <i class="fas fa-copy"></i> Copiar
+                    </button>
+                </div>
+                <div id="h-detalle-texto" class="resultado-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB 6: PLANTILLA ABP MINERD ══════════════════════════════════════ -->
+    <div id="panel-abp" class="panel">
+
+        <!-- Aviso: solo materias técnicas -->
+        <div style="background:rgba(96,184,240,.06);border:1px solid rgba(96,184,240,.2);
+                    border-radius:10px;padding:12px 16px;margin-bottom:20px;
+                    display:flex;gap:10px;align-items:flex-start;">
+            <i class="fas fa-circle-info" style="color:var(--blue);margin-top:2px;flex-shrink:0;"></i>
+            <div>
+                <div style="font-weight:700;font-size:12px;margin-bottom:2px;">Plantilla Oficial MINERD — Esquema ABP</div>
+                <div style="font-size:11px;color:var(--text-muted);line-height:1.6;">
+                    Esta sección genera el <strong style="color:var(--text)">documento Word (.docx) oficial</strong>
+                    del MINERD/DEMA para planificaciones ABP, exclusivo para materias técnicas de la Mención Artes.
+                    La IA completa automáticamente todos los bloques: Identificación, Elementos de la Unidad,
+                    Fases ABP (4 fases) e Instrumentos de Evaluación (lista de cotejo + rúbricas).
+                </div>
+            </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+
+            <!-- COLUMNA IZQUIERDA — Formulario -->
+            <div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
+                    <div style="font-family:var(--font-display);font-size:11px;font-weight:700;
+                                text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);
+                                margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+                        <i class="fas fa-id-card" style="color:var(--accent);"></i>
+                        Bloque 1 — Identificación
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;gap:12px;">
+
+                        <div>
+                            <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Asignatura *</label>
+                            <select id="abp-asignatura" onchange="abpOnAsignatura()"
+                                style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                                       color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                                <option value="">— Selecciona tu asignatura —</option>
+                            </select>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div>
+                                <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Grado</label>
+                                <select id="abp-grado" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                                    <option value="4to">4to</option>
+                                    <option value="5to">5to</option>
+                                    <option value="6to">6to</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Mención</label>
+                                <select id="abp-mencion" onchange="abpCargarAsignaturas()"
+                                    style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                                    <option value="MULTIMEDIA">Multimedia</option>
+                                    <option value="ARTES VISUALES">Artes Visuales</option>
+                                    <option value="MÚSICA">Música</option>
+                                    <option value="TEATRO">Teatro</option>
+                                    <option value="DANZA">Danza</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Título del proyecto</label>
+                            <input type="text" id="abp-titulo" placeholder="Ej: Identidad Visual: Mi Marca Local (opcional — la IA sugiere)"
+                                style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div>
+                                <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Fecha de inicio</label>
+                                <input type="text" id="abp-fecha-ini" placeholder="Ej: 19 de marzo de 2026"
+                                    style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                            </div>
+                            <div>
+                                <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Fecha de cierre</label>
+                                <input type="text" id="abp-fecha-fin" placeholder="Ej: 26 de marzo de 2026"
+                                    style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                            </div>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div>
+                                <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Duración</label>
+                                <input type="text" id="abp-duracion" placeholder="Ej: 2 semanas, P3 (Feb–Mar)"
+                                    style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                            </div>
+                            <div>
+                                <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">Producto final</label>
+                                <input type="text" id="abp-producto" placeholder="Ej: Portafolio fotográfico digital"
+                                    style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;">
+                                Contexto adicional para la IA
+                                <span style="font-weight:400;text-transform:none;"> — ¿algo específico del grupo, proyecto o metodología?</span>
+                            </label>
+                            <textarea id="abp-contexto" rows="3" placeholder="Ej: Grupo de 28 estudiantes, nivel intermedio. Este período trabajaremos en el patio para fotografía exterior..."
+                                style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;resize:vertical;"></textarea>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Botón generar -->
+                <button id="btn-generar-abp" onclick="generarPlanABP()"
+                    style="width:100%;background:var(--accent);border:none;color:#000;
+                           font-weight:700;padding:12px 20px;border-radius:10px;font-size:13px;
+                           cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+                           transition:all .2s;">
+                    <i class="fas fa-robot"></i>
+                    Generar Planificación ABP con IA
+                </button>
+
+                <!-- Planificaciones ABP guardadas -->
+                <div style="margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+                    <div style="font-family:var(--font-display);font-size:11px;font-weight:700;
+                                text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);
+                                margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+                        <i class="fas fa-folder-open" style="color:var(--accent);"></i>
+                        Planificaciones ABP guardadas
+                    </div>
+                    <div id="abp-guardadas-list" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;">
+                        <div style="font-size:11px;color:var(--text-muted);padding:8px;">Cargando...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COLUMNA DERECHA — Vista previa y acciones -->
+            <div>
+                <!-- Estado inicial -->
+                <div id="abp-estado-inicial" style="background:var(--surface);border:1px solid var(--border);
+                     border-radius:12px;padding:40px;text-align:center;color:var(--text-muted);">
+                    <div style="font-size:40px;margin-bottom:12px;">📄</div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Tu planificación aparecerá aquí</div>
+                    <div style="font-size:11px;line-height:1.7;">
+                        Completa los datos de identificación y haz clic en<br>
+                        <strong style="color:var(--text)">Generar</strong> — la IA completará los 4 bloques MINERD.<br>
+                        Luego puedes editar cada campo y descargar el <strong style="color:var(--text)">.docx oficial</strong>.
+                    </div>
+                </div>
+
+                <!-- Vista previa del plan generado -->
+                <div id="abp-preview" style="display:none;">
+
+                    <!-- Header del preview -->
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 0 0;
+                                padding:14px 18px;display:flex;align-items:center;gap:10px;">
+                        <div style="flex:1;">
+                            <div style="font-family:var(--font-display);font-size:13px;font-weight:700;" id="abp-prev-titulo">—</div>
+                            <div style="font-size:11px;color:var(--text-muted);" id="abp-prev-sub">—</div>
+                        </div>
+                        <button onclick="editarPlanABP()"
+                            style="background:transparent;border:1px solid var(--border);color:var(--text-muted);
+                                   padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer;">
+                            <i class="fas fa-pen"></i> Editar
+                        </button>
+                        <button id="btn-exportar-docx" onclick="exportarDocx()"
+                            style="background:#1F4E79;border:none;color:#fff;
+                                   padding:8px 16px;border-radius:8px;font-size:12px;
+                                   font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px;
+                                   transition:background .15s;">
+                            <i class="fas fa-file-word"></i> Descargar .docx
+                        </button>
+                    </div>
+
+                    <!-- Contenido del plan en tabs internos -->
+                    <div style="background:var(--surface2);border:1px solid var(--border);border-top:none;
+                                border-radius:0 0 12px 12px;overflow:hidden;">
+
+                        <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto;">
+                            <button class="abp-inner-tab active" onclick="abpInnerTab('identificacion',this)">Identificación</button>
+                            <button class="abp-inner-tab" onclick="abpInnerTab('elementos',this)">Elementos</button>
+                            <button class="abp-inner-tab" onclick="abpInnerTab('fases',this)">Fases ABP</button>
+                            <button class="abp-inner-tab" onclick="abpInnerTab('instrumentos',this)">Instrumentos</button>
+                        </div>
+
+                        <div id="abp-inner-identificacion" class="abp-inner-panel" style="padding:16px;max-height:420px;overflow-y:auto;">
+                            <div id="abp-id-content"></div>
+                        </div>
+                        <div id="abp-inner-elementos" class="abp-inner-panel" style="padding:16px;max-height:420px;overflow-y:auto;display:none;">
+                            <div id="abp-el-content"></div>
+                        </div>
+                        <div id="abp-inner-fases" class="abp-inner-panel" style="padding:16px;max-height:420px;overflow-y:auto;display:none;">
+                            <div id="abp-fa-content"></div>
+                        </div>
+                        <div id="abp-inner-instrumentos" class="abp-inner-panel" style="padding:16px;max-height:420px;overflow-y:auto;display:none;">
+                            <div id="abp-inst-content"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Spinner -->
+                <div id="abp-loading" style="display:none;background:var(--surface);border:1px solid var(--border);
+                     border-radius:12px;padding:60px;text-align:center;">
+                    <div style="font-size:32px;margin-bottom:16px;">⚙️</div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Generando planificación...</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:20px;">
+                        La IA está completando los 4 bloques MINERD.<br>Puede tardar 15–30 segundos.
+                    </div>
+                    <div style="width:200px;height:4px;background:var(--border);border-radius:2px;margin:0 auto;overflow:hidden;">
+                        <div id="abp-progress-bar" style="width:0%;height:100%;background:var(--accent);border-radius:2px;transition:width .5s;"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /grid -->
+
+    </div><!-- /panel-abp -->
+
+</main>
+
+<style>
+.abp-inner-tab {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: var(--font-body);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all .15s;
+    border-bottom: 2px solid transparent;
+}
+.abp-inner-tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    background: var(--surface);
+}
+.abp-field-row {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+.abp-field-lbl {
+    font-weight: 700;
+    color: var(--text-muted);
+    min-width: 130px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    padding-top: 2px;
+}
+.abp-field-val { color: var(--text); line-height: 1.5; flex: 1; }
+.abp-fase-card {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+}
+.abp-fase-titulo {
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 8px;
+}
+</style>
+
+<script>
+    // ── TAB NAVIGATION ─────────────────────────────────────────────────────
+    function setTab(nombre, btn) {
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('panel-' + nombre).classList.add('active');
+        btn.classList.add('active');
+    }
+
+    // ── CARGAR CURRÍCULO EN PREVIEW ─────────────────────────────────────────
+    async function cargarCurriculo(selectId, boxId) {
+        const materia = document.getElementById(selectId).value;
+        const box = document.getElementById(boxId);
+        if (!materia) { box.classList.remove('show'); return; }
+
+        const mencionEl = document.getElementById(selectId.replace('-materia', '-mencion'));
+        const mencion = mencionEl ? mencionEl.value : 'MULTIMEDIA';
+        const res = await fetch(`/api/planificacion/curriculo/${encodeURIComponent(materia)}?mencion=${encodeURIComponent(mencion)}`);
+        const c = await res.json();
+        if (c.error) { box.classList.remove('show'); return; }
+
+        box.innerHTML = `
+            <div class="curriculo-title">📋 Currículo MINERD — ${materia.replace('_',' ')}</div>
+            <div style="font-size:12px; color:var(--info); margin-bottom:10px;">${c.competencia}</div>
+            <div class="curriculo-seccion">
+                <div class="curriculo-seccion-title">Saberes Conceptuales</div>
+                ${c.saberes_conceptuales.slice(0,5).map(s => `<span class="curriculo-tag">${s}</span>`).join('')}
+            </div>
+            <div class="curriculo-seccion">
+                <div class="curriculo-seccion-title">Indicadores de Logro</div>
+                ${c.indicadores_logro.slice(0,4).map(s => `<span class="curriculo-tag">✓ ${s}</span>`).join('')}
+            </div>
+            <div style="margin-top:8px; font-size:11px; color:var(--accent);">
+                <i class="fas fa-star"></i> Evidencia de desempeño: ${c.evidencias}
+            </div>
+        `;
+        box.classList.add('show');
+
+        // Guardar currículo en caché para que actualizarTemas() lo use
+        window._curriculoCache = c;
+    }
+
+    // ── SUGERIR TEMAS SEGÚN MATERIA SELECCIONADA ────────────────────────────
+    // Rellena el campo p-tema con sugerencias clickeables del currículo MINERD.
+    // Se llama desde onchange del selector de materia y desde actualizarMaterias.
+    // Definida como window.actualizarTemas para garantizar visibilidad global.
+    window.actualizarTemas = async function actualizarTemas() {
+        const materia   = document.getElementById('p-materia').value;
+        const temaInput = document.getElementById('p-tema');
+        if (!materia || !temaInput) return;
+
+        // Si ya tenemos el currículo en caché (cargarCurriculo se llamó antes), usarlo
+        let c = window._curriculoCache;
+        if (!c) {
+            try {
+                const mencionEl = document.getElementById('p-mencion');
+                const mencion = mencionEl ? mencionEl.value : 'MULTIMEDIA';
+                const res = await fetch(`/api/planificacion/curriculo/${encodeURIComponent(materia)}?mencion=${encodeURIComponent(mencion)}`);
+                c = await res.json();
+                window._curriculoCache = c;
+            } catch(e) { return; }
+        }
+
+        // Contenedor de sugerencias — lo creamos si no existe
+        let sugs = document.getElementById('p-tema-sugerencias');
+        if (!sugs) {
+            sugs = document.createElement('div');
+            sugs.id = 'p-tema-sugerencias';
+            sugs.style.cssText = 'margin-top:6px;display:flex;flex-wrap:wrap;gap:5px;';
+            temaInput.parentNode.insertBefore(sugs, temaInput.nextSibling);
+        }
+
+        // Mezclar saberes procedimentales + indicadores de logro como sugerencias
+        const items = [
+            ...(c.saberes_procedimentales || []).slice(0, 4),
+            ...(c.indicadores_logro       || []).slice(0, 3),
+        ];
+
+        sugs.innerHTML = '<span style="font-size:10px;color:var(--text-muted);align-self:center;white-space:nowrap;">Sugerencias:</span> ' +
+            items.map(t => `
+                <span onclick="document.getElementById('p-tema').value=this.dataset.t;
+                               document.getElementById('p-tema-sugerencias').querySelectorAll('span[onclick]').forEach(s=>s.style.background='');
+                               this.style.background='rgba(55,138,221,.15)';"
+                      data-t="${t.replace(/"/g,'&quot;')}"
+                      style="font-size:10px;padding:3px 9px;border-radius:12px;
+                             border:1px solid var(--border);cursor:pointer;
+                             color:var(--text-muted);transition:all .15s;"
+                      onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--text)'"
+                      onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'">
+                    ${t.length > 55 ? t.slice(0,52)+'…' : t}
+                </span>`).join('');
+    }
+
+    // ── CARGAR INDICADORES PARA RÚBRICA ────────────────────────────────────
+    let indicadorSeleccionado = '';
+
+    async function cargarIndicadores() {
+        const materia = document.getElementById('r-materia').value;
+        const mencionEl = document.getElementById('r-mencion');
+        const mencion = mencionEl ? mencionEl.value : 'MULTIMEDIA';
+        const cont = document.getElementById('r-indicadores');
+        indicadorSeleccionado = '';
+        if (!materia) return;
+
+        const res = await fetch(`/api/planificacion/curriculo/${encodeURIComponent(materia)}?mencion=${encodeURIComponent(mencion)}`);
+        const c = await res.json();
+
+        cont.innerHTML = c.indicadores_logro.map(ind => `
+            <div class="indicador-item" onclick="seleccionarIndicador(this, '${ind.replace(/'/g,"\\'")}')">
+                <span class="indicador-check">○</span>
+                <span class="indicador-texto">${ind}</span>
+            </div>
+        `).join('');
+    }
+
+    function seleccionarIndicador(el, texto) {
+        document.querySelectorAll('.indicador-item').forEach(i => i.classList.remove('selected'));
+        el.classList.add('selected');
+        el.querySelector('.indicador-check').textContent = '●';
+        indicadorSeleccionado = texto;
+    }
+
+    // ── VER DETALLE CURRÍCULO ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// PLAN DE ESTUDIO BENITO JUÁREZ — visualización dinámica
+// ═══════════════════════════════════════════════════════════
+var _planBJ_mencion = 'MULTIMEDIA';
+var _COMUNES_NOMBRES = ['lengua española','inglés','ingles','matemática','matematica',
+  'ciencias sociales','ciencias de la naturaleza','formación integral',
+  'formacion integral','educación física','educacion fisica',
+  'identidad, cultura'];
+
+function planBJsetMencion(m, btn) {
+  _planBJ_mencion = m;
+  document.querySelectorAll('#mencion-tabs-curriculo .chip').forEach(c => c.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  planBJrender();
+  renderMateriasCards();
+}
+
+function planBJrender() {
+  var grado = (document.getElementById('filtro-grado-plan') || {}).value || '';
+  var grid  = document.getElementById('plan-bj-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Cargando...</div>';
+
+  var url = '/api/plan-estudio?mencion=' + _planBJ_mencion + (grado ? '&grado=' + grado : '');
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      var html = '';
+      if (data.asignaturas) {
+        html = _renderPlanGrado(grado || '—', data.asignaturas);
+      } else if (data.plan) {
+        var mencionData = data.plan[_planBJ_mencion] || {};
+        ['4to','5to','6to'].forEach(g => {
+          if (mencionData[g]) html += _renderPlanGrado(g, mencionData[g]);
+        });
+      }
+      grid.innerHTML = html || '<div style="color:var(--text-muted);font-size:12px;">Sin datos</div>';
+    })
+    .catch(e => { grid.innerHTML = '<div style="color:#ff6b6b;font-size:12px;">Error: ' + e.message + '</div>'; });
+}
+
+function _renderPlanGrado(grado, asigs) {
+  var esp  = asigs.filter(a => !_COMUNES_NOMBRES.some(c => a.nombre.toLowerCase().includes(c)));
+  var com  = asigs.filter(a =>  _COMUNES_NOMBRES.some(c => a.nombre.toLowerCase().includes(c)));
+  var tot  = asigs.reduce((s,a) => s+(a.horas_semana||0), 0);
+
+  var emoji = {'MULTIMEDIA':'🎬','TEATRO':'🎭','MUSICA':'🎵','VISUAL':'🎨'}[_planBJ_mencion] || '📚';
+
+  return '<div style="margin-bottom:12px;background:var(--bg-card);border:1px solid var(--border);' +
+    'border-radius:12px;overflow:hidden;">' +
+    '<div style="padding:9px 14px;background:rgba(var(--accent-rgb),.07);border-bottom:1px solid var(--border);' +
+    'display:flex;align-items:center;justify-content:space-between;">' +
+    '<span style="font-weight:800;font-size:14px;">' + emoji + ' ' + grado + ' Grado</span>' +
+    '<span style="font-size:11px;color:var(--text-muted);">' + tot + ' h/sem</span>' +
+    '</div>' +
+    '<div style="padding:10px 14px;display:flex;flex-wrap:wrap;gap:5px;">' +
+    esp.map(a =>
+      '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;' +
+      'background:rgba(var(--accent-rgb),.1);border:1px solid rgba(var(--accent-rgb),.2);' +
+      'font-size:11px;font-weight:600;color:var(--accent);">' +
+      a.nombre +
+      (a.horas_semana > 0 ? ' <span style="opacity:.55;font-size:10px;">(' + a.horas_semana + 'h)</span>' : '') +
+      (a.horas_semana === 0 ? ' <span style="color:#f0c060;font-size:10px;">★ aprendida</span>' : '') +
+      '</span>'
+    ).join('') +
+    com.map(a =>
+      '<span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:99px;' +
+      'background:var(--bg);border:1px solid var(--border);font-size:10px;color:var(--text-muted);">' +
+      a.nombre + '</span>'
+    ).join('') +
+    '</div></div>';
+}
+
+function _getMencionKey(m) {
+  var map = {'VISUAL':'ARTES VISUALES','MUSICA':'MÚSICA','MULTIMEDIA':'MULTIMEDIA','TEATRO':'TEATRO','DANZA':'DANZA'};
+  return map[m] || m;
+}
+
+function renderMateriasCards() {
+  var grid = document.getElementById('materias-cards-grid');
+  if (!grid) return;
+
+  var filtroGrado = (document.getElementById('filtro-grado-plan') || {}).value || '';
+  var mencionKey  = _getMencionKey(_planBJ_mencion);
+  var mencionData = MATERIAS_POR_MENCION[mencionKey] || {};
+  var grados      = filtroGrado ? [filtroGrado] : ['4to','5to','6to'];
+  var gradoEmoji  = {'4to':'📗','5to':'📘','6to':'📙'};
+
+  var html = '';
+  grados.forEach(function(g) {
+    var lista = mencionData[g];
+    if (!lista || !lista.length) return;
+    html += '<div style="margin-bottom:20px;">';
+    html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);font-weight:700;margin-bottom:10px;padding-bottom:5px;border-bottom:1px solid var(--border);">' +
+            (gradoEmoji[g] || '📅') + ' ' + g + ' Grado</div>';
+    html += '<div class="materias-grid">';
+    lista.forEach(function(m) {
+      var key   = m[0];
+      var label = m[1];
+      // Split emoji from name — first non-space sequence is the emoji
+      var match = label.match(/^(\S+)\s+(.+)$/);
+      var emoji = match ? match[1] : '📚';
+      var nombre = match ? match[2] : label;
+      html += '<div class="materia-card" data-mkey="' + key + '" onclick="verDetalleCurriculo(this.dataset.mkey, this)">';
+      html += '<div class="materia-emoji">' + emoji + '</div>';
+      html += '<div class="materia-nombre">' + nombre + '</div>';
+      html += '<div class="materia-grado" style="font-size:10px;color:var(--text-muted);margin-top:4px;">' + g + ' Grado</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  });
+
+  grid.innerHTML = html || '<div style="color:var(--text-muted);font-size:12px;padding:16px 0;">Sin materias disponibles para esta mención.</div>';
+  // Reset detail panel when switching
+  var det = document.getElementById('c-detalle');
+  if (det) det.style.display = 'none';
+}
+
+// Auto-render when curriculo tab is opened
+(function() {
+  var _origCambiar = null;
+  document.addEventListener('DOMContentLoaded', function() {
+    // Initialize all materia selectors based on default mención
+    ['p', 'r', 'e'].forEach(function(prefix) {
+        actualizarMaterias(prefix);
+    });
+    renderMateriasCards();
+    _origCambiar = window.cambiarTab;
+    window.cambiarTab = function(tab) {
+      if (_origCambiar) _origCambiar(tab);
+      if (tab === 'curriculo') {
+        setTimeout(planBJrender, 150);
+        setTimeout(renderMateriasCards, 200);
+      }
+    };
+  });
+})();
+
+async function verDetalleCurriculo(materia, card) {
+        document.querySelectorAll('.materia-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+
+        const res = await fetch(`/api/planificacion/curriculo/${encodeURIComponent(materia)}?mencion=${_planBJ_mencion}`);
+        const c = await res.json();
+        const box = document.getElementById('c-detalle');
+
+        box.style.display = 'block';
+        box.innerHTML = `
+            <div class="curriculo-title">📋 ${materia.replace('_',' ')} — Detalle Curricular MINERD</div>
+            <div style="font-size:12px; color:var(--info); margin-bottom:14px;">${c.competencia} &nbsp;|&nbsp; ${c.horas} horas semanales</div>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px; line-height:1.6;">${c.descripcion}</p>
+
+            <div class="curriculo-seccion" style="margin-bottom:16px;">
+                <div class="curriculo-seccion-title">📚 Saberes Conceptuales</div>
+                ${c.saberes_conceptuales.map(s => `<span class="curriculo-tag">${s}</span>`).join('')}
+            </div>
+            <div class="curriculo-seccion" style="margin-bottom:16px;">
+                <div class="curriculo-seccion-title">🔧 Saberes Procedimentales</div>
+                ${c.saberes_procedimentales.map(s => `<span class="curriculo-tag">${s}</span>`).join('')}
+            </div>
+            <div class="curriculo-seccion" style="margin-bottom:16px;">
+                <div class="curriculo-seccion-title">💡 Saberes Actitudinales</div>
+                ${c.saberes_actitudinales.map(s => `<span class="curriculo-tag">${s}</span>`).join('')}
+            </div>
+            <div class="curriculo-seccion" style="margin-bottom:12px;">
+                <div class="curriculo-seccion-title">✅ Indicadores de Logro Oficiales</div>
+                ${c.indicadores_logro.map((s,i) => `<div style="font-size:12px; padding:6px 0; border-bottom:1px solid var(--border); color:var(--text);">${i+1}. ${s}</div>`).join('')}
+            </div>
+            <div style="margin-top:12px; padding:12px; background:rgba(232,184,75,.08); border-radius:8px; border:1px solid rgba(232,184,75,.25);">
+                <span style="font-size:11px; font-weight:700; color:var(--accent);">⭐ EVIDENCIA DE DESEMPEÑO:</span>
+                <span style="font-size:12px; color:var(--text); margin-left:8px;">${c.evidencias}</span>
+            </div>
+        `;
+    }
+
+    // ── GENERAR PLANIFICACIÓN ───────────────────────────────────────────────
+    
+// ══════════════════════════════════════════════════════════════════════════════
+//  MATERIAS POR MENCIÓN Y GRADO — Currículo MINERD Modalidad Artes
+//  Antes era un objeto hardcodeado con nombres inventados que quedaron
+//  desactualizados en cuanto se corrigió el currículo real (PLAN_ARTES,
+//  core/constants.py) — el valor de cada <option> es el nombre EXACTO que
+//  usa core.curriculo.get_asignatura(), en vez de un slug hecho a mano que
+//  ya no coincidía con nada. Se construye desde plan_tecnicas (el mismo
+//  dato que ya usa el tab ABP, ver más abajo), así que siempre refleja el
+//  PLAN_ARTES real sin necesidad de mantener una copia aparte.
+// ══════════════════════════════════════════════════════════════════════════════
+var MENCION_EMOJI_MAT = {'MULTIMEDIA':'🎬','ARTES VISUALES':'🎨','MÚSICA':'🎵','TEATRO':'🎭','DANZA':'💃'};
+var MATERIAS_POR_MENCION = (function(){
+    var plan = {{ plan_tecnicas | default({}) | tojson }};
+    var out = {};
+    Object.keys(plan).forEach(function(mencion){
+        out[mencion] = {};
+        Object.keys(plan[mencion]).forEach(function(grado){
+            out[mencion][grado] = plan[mencion][grado].map(function(m){
+                return [m.nombre, (MENCION_EMOJI_MAT[mencion] || '📚') + ' ' + m.nombre];
+            });
+        });
+    });
+    return out;
+})();
+
+function actualizarMaterias(prefix) {
+    var mencionEl = document.getElementById(prefix + '-mencion');
+    var materiaEl = document.getElementById(prefix + '-materia');
+    var gradoEl   = document.getElementById(prefix + '-grado');
+    if (!mencionEl || !materiaEl) return;
+
+    var mencion = mencionEl.value;
+    var grado   = gradoEl ? gradoEl.value : '4to';
+    var lista   = (MATERIAS_POR_MENCION[mencion] || {})[grado] || 
+                  MATERIAS_POR_MENCION[mencion]['4to'] || [];
+
+    materiaEl.innerHTML = '<option value="">Selecciona una materia...</option>';
+    lista.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m[0];
+        opt.textContent = m[1];
+        materiaEl.appendChild(opt);
+    });
+
+    // Trigger dependent updates
+    if (prefix === 'p') {
+        cargarCurriculo('p-materia', 'p-curriculo');
+        if (typeof window.actualizarTemas === 'function') actualizarTemas();
+    } else if (prefix === 'r') {
+        cargarIndicadores();
+    }
+}
+
+// Update materias when grado changes
+function onGradoChange(prefix) {
+    actualizarMaterias(prefix);
+}
+
+
+async function generarPlanificacion() {
+        const materia  = document.getElementById('p-materia').value;
+        const grado    = document.getElementById('p-grado').value;
+        const tema     = document.getElementById('p-tema').value.trim();
+        const duracion = document.getElementById('p-duracion').value;
+        const nivel    = document.getElementById('p-nivel').value;
+
+        if (!materia) return alert('Selecciona una materia');
+        if (!tema)    return alert('Escribe el tema específico a trabajar');
+
+        mostrarLoading('p', true);
+        rotateMsgs('p-loading-txt', [
+            'Consultando currículo MINERD...', 'Diseñando actividades...', 'Casi listo...'
+        ]);
+
+        try {
+            const res = await fetch('/api/planificacion/generar', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({materia, grado, tema, duracion, nivel_grupo: nivel,
+                    mencion: (document.getElementById('p-mencion') || {}).value || 'MULTIMEDIA'})
+            });
+            mostrarLoading('p', false);
+            if (!res.ok) { mostrarError('p', 'Error del servidor (' + res.status + '). Verifica que el servidor esté corriendo.'); return; }
+            const data = await res.json();
+            if (data.error) { mostrarError('p', data.error); return; }
+            mostrarResultado('p', data.resultado);
+        } catch(ex) {
+            mostrarLoading('p', false);
+            mostrarError('p', 'Error de conexión con el servidor.');
+        }
+    }
+
+    // ── GENERAR RÚBRICA ─────────────────────────────────────────────────────
+    async function generarRubrica() {
+        const materia = document.getElementById('r-materia').value;
+        const nivel   = document.getElementById('r-grado').value;
+
+        if (!materia)            return alert('Selecciona una materia');
+        if (!indicadorSeleccionado) return alert('Selecciona un indicador de logro');
+
+        mostrarLoading('r', true);
+        try {
+            const res = await fetch('/api/planificacion/rubrica', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({materia, indicador: indicadorSeleccionado, nivel,
+                    mencion: (document.getElementById('r-mencion') || {}).value || 'MULTIMEDIA'})
+            });
+            mostrarLoading('r', false);
+            if (!res.ok) { mostrarError('r', 'Error del servidor (' + res.status + ').'); return; }
+            const data = await res.json();
+            if (data.error) { mostrarError('r', data.error); return; }
+            mostrarResultado('r', data.resultado);
+        } catch(ex) {
+            mostrarLoading('r', false);
+            mostrarError('r', 'Error de conexión.');
+        }
+    }
+
+    // ── GENERAR ESTRATEGIA ──────────────────────────────────────────────────
+    async function generarEstrategia() {
+        const materia  = document.getElementById('e-materia').value;
+        const problema = document.getElementById('e-problema').value.trim();
+        const perfil   = document.getElementById('e-perfil').value.trim();
+
+        if (!materia)  return alert('Selecciona una materia');
+        if (!problema) return alert('Describe el problema o dificultad');
+
+        mostrarLoading('e', true);
+        try {
+            const res = await fetch('/api/planificacion/estrategia', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({materia, problema, perfil_grupo: perfil,
+                    mencion: (document.getElementById('e-mencion') || {}).value || 'MULTIMEDIA'})
+            });
+            mostrarLoading('e', false);
+            if (!res.ok) { mostrarError('e', 'Error del servidor (' + res.status + ').'); return; }
+            const data = await res.json();
+            if (data.error) { mostrarError('e', data.error); return; }
+            mostrarResultado('e', data.resultado);
+        } catch(ex) {
+            mostrarLoading('e', false);
+            mostrarError('e', 'Error de conexión.');
+        }
+    }
+
+    // ── HELPERS ─────────────────────────────────────────────────────────────
+    function mostrarLoading(prefix, show) {
+        document.getElementById(prefix + '-loading').classList.toggle('show', show);
+        document.getElementById(prefix + '-resultado').classList.remove('show');
+        document.getElementById(prefix + '-error').classList.remove('show');
+    }
+
+    function mostrarError(prefix, msg) {
+        const el = document.getElementById(prefix + '-error');
+        el.textContent = '⚠ ' + msg;
+        el.classList.add('show');
+    }
+
+    function mostrarResultado(prefix, texto) {
+        const box = document.getElementById(prefix + '-resultado');
+        const content = document.getElementById(prefix + '-content');
+        content.innerHTML = formatearTexto(texto);
+        box.classList.add('show');
+    }
+
+    function copiarResultado(contentId) {
+        const texto = document.getElementById(contentId).innerText;
+        navigator.clipboard.writeText(texto).then(() => {
+            event.target.textContent = '✓ Copiado';
+            setTimeout(() => event.target.innerHTML = '<i class="fas fa-copy"></i> Copiar', 2000);
+        });
+    }
+
+    function formatearTexto(texto) {
+        const colores = {
+            'COMPETENCIAS': '#4bbfe8',
+            'OBJETIVO': '#4be87a',
+            'MOTIVACIÓN': '#e8b84b',
+            'DESARROLLO': '#b44be8',
+            'ACTIVIDAD': '#e87a4b',
+            'EVALUACIÓN': '#4be87a',
+            'RECURSOS': '#e8b84b',
+            'INTEGRACIÓN': '#4bbfe8',
+            'DIAGNÓSTICO': '#4bbfe8',
+            'FORTALEZAS': '#4be87a',
+            'PLAN': '#e8b84b',
+            'SEGUIMIENTO': '#b44be8',
+            'ESTRATEGIAS': '#e87a4b',
+            'RÚBRICA': '#4be87a',
+            'TABLA': '#4bbfe8',
+            'ESCALA': '#e8b84b',
+            'INDICACIONES': '#b44be8'
+        };
+
+        let html = texto;
+
+        // Convertir encabezados numerados
+        html = html.replace(/^(\d+)\.\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s()]+)/gm, (match, num, titulo) => {
+            const key = Object.keys(colores).find(k => titulo.includes(k));
+            const color = key ? colores[key] : 'var(--accent)';
+            return `<div class="res-seccion"><div class="res-titulo" style="color:${color};">${num}. ${titulo}</div><div class="res-cuerpo">`;
+        });
+
+        // Cerrar secciones abiertas
+        const aperturas = (html.match(/class="res-cuerpo">/g) || []).length;
+        html += '</div></div>'.repeat(aperturas);
+
+        // Listas con guión
+        html = html.replace(/^[-•]\s+(.+)$/gm,
+            '<div style="display:flex;gap:8px;margin-bottom:5px;"><span style="color:var(--accent);flex-shrink:0;">▸</span><span>$1</span></div>'
+        );
+
+        // Negritas
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+        // Saltos de línea
+        html = html.replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
+
+        return html || texto;
+    }
+
+    let msgInterval = null;
+    function rotateMsgs(elId, msgs) {
+        clearInterval(msgInterval);
+        let i = 0;
+        msgInterval = setInterval(() => {
+            i = (i + 1) % msgs.length;
+            const el = document.getElementById(elId);
+            if (el) el.textContent = msgs[i];
+        }, 2000);
+    }
+
+    // ── GUARDAR DESDE RESULTADO ─────────────────────────────────────────────
+    async function guardarDesdeResultado() {
+        const btn = document.getElementById('p-guardar-btn');
+        const contenido = document.getElementById('p-content').innerText;
+        if (!contenido) return;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
+        btn.disabled = true;
+        await guardarPlanificacion(contenido);
+        btn.innerHTML = '<i class="fas fa-check"></i> Guardado';
+        setTimeout(() => {
+            btn.innerHTML = '<i class="fas fa-bookmark"></i> Guardar';
+            btn.disabled = false;
+        }, 2000);
+    }
+
+    // ── GUARDAR PLANIFICACIÓN ────────────────────────────────────────────────
+    async function guardarPlanificacion(contenido) {
+        const materia  = document.getElementById('p-materia').value;
+        const grado    = document.getElementById('p-grado').value;
+        const tema     = document.getElementById('p-tema').value;
+        const nivel    = document.getElementById('p-nivel').value;
+
+        await fetch('/api/planificacion/guardar', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                estudiante_id:     estudiantePreId || null,
+                nombre_estudiante: estudiantePreNombre || '',
+                materia, grado, tema,
+                nivel_grupo: nivel,
+                contenido
+            })
+        });
+    }
+
+    // ── HISTORIAL ────────────────────────────────────────────────────────────
+    let historialData = [];
+
+    async function cargarHistorial() {
+        const lista = document.getElementById('h-lista');
+        lista.innerHTML = '<div style="color:var(--text-muted); font-size:13px; padding:20px;">Cargando...</div>';
+        try {
+            const res = await fetch('/api/planificacion/historial');
+            historialData = await res.json();
+            renderHistorial(historialData);
+        } catch(ex) {
+            lista.innerHTML = '<div style="color:var(--danger);">Error al cargar historial.</div>';
+        }
+    }
+
+    function renderHistorial(items) {
+        const lista = document.getElementById('h-lista');
+        if (!items.length) {
+            lista.innerHTML = '<div style="color:var(--text-muted); font-size:13px; padding:20px; text-align:center;">'
+                + '<i class="fas fa-inbox" style="font-size:32px; display:block; margin-bottom:12px; opacity:.3;"></i>'
+                + 'No hay planificaciones guardadas aún.<br>Genera una y haz clic en "Guardar".</div>';
+            return;
+        }
+
+        const materiaColor = {
+            'Fotografía':     '#4bbfe8',
+            'Lenguaje_Visual':'#b44be8',
+            'Diseño':         '#e8b84b'
+        };
+        const materiaIcon = {
+            'Fotografía':     '📸',
+            'Lenguaje_Visual':'🎨',
+            'Diseño':         '🖥️'
+        };
+
+        lista.innerHTML = '';
+        items.forEach(function(item) {
+            var color = materiaColor[item.materia] || 'var(--accent)';
+            var icon  = materiaIcon[item.materia]  || '📋';
+            var fecha = new Date(item.fecha).toLocaleDateString('es-DO', {
+                day:'2-digit', month:'short', year:'numeric'
+            });
+
+            var card = document.createElement('div');
+            card.className = 'historial-item';
+            card.onclick = function(){ verDetalle(item.id); };
+
+            var nombreEst = item.nombre_estudiante
+                ? '<span style="color:var(--accent); font-size:11px;">👤 ' + item.nombre_estudiante + '</span> &nbsp;'
+                : '';
+
+            card.innerHTML = '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">'
+                + '<div style="flex:1;">'
+                + '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">'
+                + '<span style="font-size:16px;">' + icon + '</span>'
+                + '<span style="font-family:var(--font-display); font-weight:700; font-size:13px; color:' + color + ';">' + item.materia.replace('_',' ') + '</span>'
+                + '<span style="font-size:10px; background:var(--surface2); border:1px solid var(--border); padding:2px 7px; border-radius:4px; color:var(--text-muted);">' + item.grado + '</span>'
+                + '</div>'
+                + '<div style="font-size:13px; font-weight:500; margin-bottom:4px;">' + item.tema + '</div>'
+                + '<div style="font-size:11px; color:var(--text-muted);">' + nombreEst
+                + '<i class="fas fa-clock" style="font-size:10px;"></i> ' + fecha + '</div>'
+                + '</div>'
+                + '</div>';
+
+            var delBtn = document.createElement('button');
+            delBtn.title = 'Eliminar';
+            delBtn.style.cssText = 'background:transparent; border:1px solid transparent; color:var(--text-muted); padding:4px 8px; border-radius:6px; font-size:11px; cursor:pointer; flex-shrink:0;';
+            delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+            delBtn.addEventListener('mouseover', function(){ this.style.borderColor='var(--danger)'; this.style.color='var(--danger)'; });
+            delBtn.addEventListener('mouseout',  function(){ this.style.borderColor='transparent'; this.style.color='var(--text-muted)'; });
+            delBtn.addEventListener('click', function(e){ e.stopPropagation(); eliminarPlanificacion(item.id); });
+            card.querySelector('div').appendChild(delBtn);
+
+            lista.appendChild(card);
+        });
+    }
+
+    function filtrarHistorial() {
+        const q = document.getElementById('h-filtro').value.toLowerCase();
+        const filtrado = historialData.filter(i =>
+            i.nombre_estudiante.toLowerCase().includes(q) ||
+            i.tema.toLowerCase().includes(q) ||
+            i.materia.toLowerCase().includes(q)
+        );
+        renderHistorial(filtrado);
+    }
+
+    function verDetalle(id) {
+        const item = historialData.find(i => i.id === id);
+        if (!item) return;
+        document.getElementById('h-detalle-badge').textContent =
+            item.materia.replace('_',' ') + ' · ' + item.grado + ' · ' + item.tema;
+        document.getElementById('h-detalle-texto').innerHTML = formatearTexto(item.contenido);
+        document.getElementById('h-detalle').style.display = 'block';
+        document.getElementById('h-detalle').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function cerrarDetalle() {
+        document.getElementById('h-detalle').style.display = 'none';
+    }
+
+    async function eliminarPlanificacion(id) {
+        if (!confirm('¿Eliminar esta planificación?')) return;
+        await fetch('/api/planificacion/historial/' + id, { method: 'DELETE' });
+        historialData = historialData.filter(i => i.id !== id);
+        renderHistorial(historialData);
+        cerrarDetalle();
+    }
+
+    // ── PRECARGAR ESTUDIANTE DESDE URL ───────────────────────────────────────
+    let estudiantePreId = null;
+    let estudiantePreNombre = '';
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('estudiante_id')) {
+        estudiantePreId     = params.get('estudiante_id');
+        estudiantePreNombre = params.get('nombre') || '';
+
+        // Mostrar banner de contexto
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:rgba(232,184,75,.1); border:1px solid rgba(232,184,75,.3); '
+            + 'border-radius:10px; padding:12px 16px; margin-bottom:20px; '
+            + 'display:flex; align-items:center; gap:10px; font-size:13px;';
+        banner.innerHTML = '<span style="font-size:18px;">👤</span>'
+            + '<span>Planificando para <strong style="color:var(--accent);">'
+            + estudiantePreNombre + '</strong></span>'
+            + '<a href="/planificacion" style="margin-left:auto; font-size:11px; '
+            + 'color:var(--text-muted); text-decoration:none;">✕ Quitar filtro</a>';
+        document.querySelector('main').insertBefore(banner, document.querySelector('.tabs'));
+
+        // Auto-precargar materia si viene en URL
+        if (params.get('materia')) {
+            const sel = document.getElementById('p-materia');
+            sel.value = params.get('materia');
+            cargarCurriculo('p-materia', 'p-curriculo');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TAB ABP MINERD — Plantilla Oficial
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Datos del plan técnico por mención (inyectado desde Flask)
+    // default({}) protege si el app.py aún no tiene plan_tecnicas
+    const _PLAN_FLASK = {{ plan_tecnicas | default({}) | tojson }};
+
+    // Fallback hardcodeado — funciona aunque Flask no pase el dato
+    const _PLAN_FALLBACK = {
+        "MULTIMEDIA": {
+            "4to": [
+                {nombre:"Identidad, Cultura y Emprendimiento", horas:2},
+                {nombre:"Historia del Arte Universal y la Estética Digital", horas:4},
+                {nombre:"Lenguaje Musical", horas:2},
+                {nombre:"Lenguaje Danzario y Teatral", horas:2},
+                {nombre:"Lenguaje Visual, Dibujo y Creación de Personajes", horas:5},
+                {nombre:"Diseño Básico y Expresión Visual", horas:4},
+                {nombre:"Fotografía", horas:4}
+            ],
+            "5to": [
+                {nombre:"Diseño Web", horas:6},
+                {nombre:"Diseño Gráfico", horas:4},
+                {nombre:"Publicidad y Creatividad", horas:3},
+                {nombre:"Operación de Cámara de Video", horas:4},
+                {nombre:"Guión", horas:4},
+                {nombre:"Medios de Comunicación", horas:2}
+            ],
+            "6to": [
+                {nombre:"Redes Sociales", horas:2},
+                {nombre:"Producción Audiovisual", horas:4},
+                {nombre:"Videoarte", horas:5},
+                {nombre:"Animación", horas:4},
+                {nombre:"Edición, Sonido y Musicalización", horas:4},
+                {nombre:"Producción de Proyecto Emprendedor", horas:4}
+            ]
+        },
+        "ARTES VISUALES": {
+            "4to": [
+                {nombre:"Identidad, Cultura y Emprendimiento", horas:2},
+                {nombre:"Historia del Arte Universal", horas:4},
+                {nombre:"Lenguaje Plástico y Visual", horas:6},
+                {nombre:"Dibujo Técnico y Artístico", horas:4},
+                {nombre:"Pintura y Técnicas Mixtas", horas:4},
+                {nombre:"Fotografía Artística", horas:3}
+            ],
+            "5to": [
+                {nombre:"Escultura y Cerámica", horas:5},
+                {nombre:"Grabado y Serigrafía", horas:4},
+                {nombre:"Diseño y Comunicación Visual", horas:4},
+                {nombre:"Apreciación del Arte Dominicano y del Caribe", horas:3}
+            ],
+            "6to": [
+                {nombre:"Arte Digital y Multimedia", horas:4},
+                {nombre:"Gestión y Producción Artística", horas:4},
+                {nombre:"Proyecto de Producción en Artes Visuales", horas:6},
+                {nombre:"Taller de Restauración y Patrimonio", horas:3}
+            ]
+        },
+        "MÚSICA": {
+            "4to": [
+                {nombre:"Identidad, Cultura y Emprendimiento", horas:2},
+                {nombre:"Historia de la Música Universal", horas:4},
+                {nombre:"Teoría y Solfeo", horas:4},
+                {nombre:"Instrumento Principal I", horas:6},
+                {nombre:"Coro y Conjunto Musical I", horas:3}
+            ],
+            "5to": [
+                {nombre:"Instrumento Principal II", horas:6},
+                {nombre:"Armonía y Contrapunto", horas:4},
+                {nombre:"Coro y Conjunto Musical II", horas:3},
+                {nombre:"Música Dominicana y del Caribe", horas:3},
+                {nombre:"Composición y Arreglos Básicos", horas:4}
+            ],
+            "6to": [
+                {nombre:"Instrumento Principal III", horas:6},
+                {nombre:"Producción Musical Digital", horas:5},
+                {nombre:"Dirección Coral y Orquestal", horas:3},
+                {nombre:"Proyecto Musical Emprendedor", horas:4}
+            ]
+        },
+        "TEATRO": {
+            "4to": [
+                {nombre:"Identidad, Cultura y Emprendimiento", horas:2},
+                {nombre:"Historia del Teatro Universal", horas:4},
+                {nombre:"Expresión Corporal y Movimiento Escénico", horas:4},
+                {nombre:"Técnica Vocal y Dicción", horas:3},
+                {nombre:"Actuación I — Técnicas Básicas", horas:6}
+            ],
+            "5to": [
+                {nombre:"Actuación II — Stanislavski y Métodos", horas:6},
+                {nombre:"Dramaturgia y Guión Teatral", horas:4},
+                {nombre:"Escenografía e Iluminación", horas:3},
+                {nombre:"Teatro Dominicano y del Caribe", horas:3},
+                {nombre:"Montaje Teatral I", horas:4}
+            ],
+            "6to": [
+                {nombre:"Actuación III — Proyecto Escénico", horas:6},
+                {nombre:"Dirección Teatral", horas:4},
+                {nombre:"Gestión Cultural y Producción Teatral", horas:3},
+                {nombre:"Montaje Teatral II — Obra Final", horas:5}
+            ]
+        },
+        "DANZA": {
+            "4to": [
+                {nombre:"Identidad, Cultura y Emprendimiento", horas:2},
+                {nombre:"Historia de la Danza Universal", horas:4},
+                {nombre:"Técnica de Danza Clásica I", horas:5},
+                {nombre:"Técnica de Danza Folklórica Dominicana I", horas:4},
+                {nombre:"Expresión Corporal y Acondicionamiento Físico", horas:3}
+            ],
+            "5to": [
+                {nombre:"Técnica de Danza Clásica II", horas:5},
+                {nombre:"Técnica de Danza Moderna y Contemporánea", horas:4},
+                {nombre:"Técnica de Danza Folklórica II", horas:3},
+                {nombre:"Composición Coreográfica I", horas:4},
+                {nombre:"Música Aplicada a la Danza", horas:2}
+            ],
+            "6to": [
+                {nombre:"Técnica de Danza Clásica III", horas:5},
+                {nombre:"Composición Coreográfica II — Proyecto Final", horas:5},
+                {nombre:"Gestión y Producción en Danza", horas:3},
+                {nombre:"Danza Urbana y Contemporánea", horas:3},
+                {nombre:"Montaje y Puesta en Escena", horas:4}
+            ]
+        }
+    };
+
+    // Usar Flask si tiene datos, si no usar fallback
+    const PLAN_TECNICAS = (Object.keys(_PLAN_FLASK).length > 0) ? _PLAN_FLASK : _PLAN_FALLBACK;
+
+    // Plan actual generado por la IA — se guarda aquí para exportar
+    let _planABP = null;
+    let _planABPId = null;
+
+    // ── Cargar asignaturas técnicas según mención ────────────────────────────
+    function abpCargarAsignaturas() {
+        const mencion  = document.getElementById('abp-mencion').value;
+        const grado    = document.getElementById('abp-grado').value;
+        const sel      = document.getElementById('abp-asignatura');
+        const materias = (PLAN_TECNICAS[mencion] || {})[grado] || [];
+
+        sel.innerHTML = '<option value="">— Selecciona tu asignatura —</option>';
+        materias.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.nombre;
+            opt.textContent = `${m.nombre} (${m.horas}h/sem)`;
+            sel.appendChild(opt);
+        });
+    }
+
+    // Auto-fill cuando cambia la asignatura
+    function abpOnAsignatura() {
+        const asig = document.getElementById('abp-asignatura').value;
+        // Si el título está vacío, no hacemos nada — la IA lo sugerirá
+        // Podríamos precargar el currículo para mostrarlo en el futuro
+    }
+
+    // Inicializar selector de asignaturas cuando el DOM esté listo
+    document.addEventListener('DOMContentLoaded', function() {
+        var mencionEl = document.getElementById('abp-mencion');
+        var gradoEl   = document.getElementById('abp-grado');
+        if (mencionEl) mencionEl.addEventListener('change', abpCargarAsignaturas);
+        if (gradoEl)   gradoEl.addEventListener('change',   abpCargarAsignaturas);
+        // Cargar Multimedia 4to por defecto
+        abpCargarAsignaturas();
+    });
+
+    // ── Generar planificación ABP con IA ────────────────────────────────────
+    async function generarPlanABP() {
+        const asignatura = document.getElementById('abp-asignatura').value;
+        if (!asignatura) {
+            alert('Selecciona una asignatura antes de generar.'); return;
+        }
+
+        // UI: mostrar spinner
+        document.getElementById('abp-estado-inicial').style.display = 'none';
+        document.getElementById('abp-preview').style.display = 'none';
+        document.getElementById('abp-loading').style.display = 'block';
+        document.getElementById('btn-generar-abp').disabled = true;
+
+        // Barra de progreso — 3 pasos reales (no simulados)
+        const pbar = document.getElementById('abp-progress-bar');
+        pbar.style.width = '5%';
+
+        // Genera la planificación en 3 llamadas HTTP independientes en vez de
+        // una sola larga: Render mata el worker en requests largos sin importar
+        // streaming ni actividad (WORKER TIMEOUT), así que cada paso debe ser
+        // corto por sí solo — el navegador arma el plan final combinando los 3.
+        async function _abpPaso(payload) {
+            const res  = await fetch('/api/planificacion/generar-abp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                throw new Error(data.error || 'Error del servidor');
+            }
+            return data;
+        }
+
+        try {
+            const base = {
+                asignatura,
+                grado:           document.getElementById('abp-grado').value,
+                mencion:         document.getElementById('abp-mencion').value,
+                titulo_proyecto: document.getElementById('abp-titulo').value.trim(),
+                fecha_inicio:    document.getElementById('abp-fecha-ini').value.trim(),
+                fecha_cierre:    document.getElementById('abp-fecha-fin').value.trim(),
+                duracion:        document.getElementById('abp-duracion').value.trim(),
+                producto_final:  document.getElementById('abp-producto').value.trim(),
+                contexto_adicional: document.getElementById('abp-contexto').value.trim(),
+            };
+
+            // Paso 1 — proyecto + currículo
+            const r1 = await _abpPaso({ ...base, paso: 1 });
+            const proyecto  = r1.bloque.proyecto  || {};
+            const curriculo = r1.bloque.curriculo || {};
+            pbar.style.width = '35%';
+
+            // Paso 2 — fases 1 y 2
+            const r2 = await _abpPaso({ ...base, paso: 2, proyecto, curriculo });
+            const fasesPrevias = r2.bloque.fases || [];
+            pbar.style.width = '70%';
+
+            // Paso 3 — fases 3-4 + instrumentos + ensamble final (server-side)
+            const r3 = await _abpPaso({ ...base, paso: 3, proyecto, curriculo, fases_previas: fasesPrevias });
+            pbar.style.width = '100%';
+
+            _planABP = r3.plan;
+            _planABPId = null; // nueva generación → se guarda como registro nuevo
+            setTimeout(() => {
+                document.getElementById('abp-loading').style.display = 'none';
+                renderPlanABP(_planABP);
+                guardarPlanABPActual();
+            }, 400);
+
+        } catch (err) {
+            document.getElementById('abp-loading').style.display = 'none';
+            document.getElementById('abp-estado-inicial').style.display = 'block';
+            document.getElementById('abp-estado-inicial').innerHTML = `
+                <div style="font-size:32px;margin-bottom:12px;">⚠️</div>
+                <div style="font-size:13px;font-weight:600;color:#ff6b6b;margin-bottom:8px;">Error al generar</div>
+                <div style="font-size:11px;color:var(--text-muted);">${err.message}</div>
+                <button onclick="document.getElementById('abp-estado-inicial').innerHTML='<div style=font-size:40px>📄</div><div style=font-size:13px;font-weight:600>Tu planificación aparecerá aquí</div>'"
+                    style="margin-top:12px;background:transparent;border:1px solid var(--border);
+                           color:var(--text-muted);padding:6px 14px;border-radius:7px;font-size:11px;cursor:pointer;">
+                    Reintentar
+                </button>`;
+        } finally {
+            document.getElementById('btn-generar-abp').disabled = false;
+        }
+    }
+
+    // ── Renderizar el plan generado en la vista previa ───────────────────────
+    function renderPlanABP(plan) {
+        if (!plan) return;
+
+        const doc   = plan.docente   || {};
+        const proy  = plan.proyecto  || {};
+        const cur   = plan.curriculo || {};
+        const fases = plan.fases     || [];
+        const inst  = plan.instrumentos || {};
+
+        // Header
+        document.getElementById('abp-prev-titulo').textContent =
+            proy.titulo ? `"${proy.titulo}"` : doc.asignatura || '—';
+        document.getElementById('abp-prev-sub').textContent =
+            `${doc.asignatura || ''} · ${doc.grado || ''} · ABP`;
+
+        // ── Bloque IDENTIFICACIÓN ──
+        const idRows = [
+            ['Centro educativo', doc.centro || 'C.E. en Artes Benito Juárez'],
+            ['Mención', doc.mencion || ''],
+            ['Asignatura', doc.asignatura || ''],
+            ['Grado', doc.grado || ''],
+            ['Docente', doc.nombre_completo || ''],
+            ['Título del proyecto', proy.titulo ? `"${proy.titulo}"` : '—'],
+            ['Fecha inicio', proy.fecha_inicio || '—'],
+            ['Fecha cierre', proy.fecha_cierre || '—'],
+            ['Duración', proy.duracion || '—'],
+            ['Metodología', 'ABP'],
+            ['Producto final', proy.producto_final || '—'],
+        ];
+        document.getElementById('abp-id-content').innerHTML = idRows.map(([l,v]) => `
+            <div class="abp-field-row">
+                <div class="abp-field-lbl">${l}</div>
+                <div class="abp-field-val">${escABP(v)}</div>
+            </div>`).join('');
+
+        // ── Bloque ELEMENTOS ──
+        const comps = (cur.competencias_fundamentales || []).map(c => `<li>${escABP(c)}</li>`).join('');
+        const conc  = (cur.contenidos?.conceptuales    || []).map(c => `<li>${escABP(c)}</li>`).join('');
+        const proc  = (cur.contenidos?.procedimentales || []).map(c => `<li>${escABP(c)}</li>`).join('');
+        const acti  = (cur.contenidos?.actitudinales   || []).map(c => `<li>${escABP(c)}</li>`).join('');
+        const elems = (cur.elementos_competencia       || []).map(c => `<li>${escABP(c)}</li>`).join('');
+
+        document.getElementById('abp-el-content').innerHTML = `
+            <div class="abp-field-row"><div class="abp-field-lbl">Competencias Fund.</div>
+              <div class="abp-field-val"><ul style="padding-left:16px;margin:0;font-size:12px;">${comps || '<li>—</li>'}</ul></div></div>
+            <div class="abp-field-row"><div class="abp-field-lbl">RAE</div>
+              <div class="abp-field-val"><ul style="padding-left:16px;margin:0;font-size:12px;">${(Array.isArray(cur.rae)?cur.rae:[cur.rae_descripcion||cur.rae_nombre||'—']).map(r=>`<li>${escABP(r)}</li>`).join('')}</ul></div></div>
+            <div class="abp-field-row"><div class="abp-field-lbl">Contenidos Conc.</div>
+              <div class="abp-field-val"><ul style="padding-left:16px;margin:0;font-size:12px;">${conc||'<li>—</li>'}</ul></div></div>
+            <div class="abp-field-row"><div class="abp-field-lbl">Procedinmentales</div>
+              <div class="abp-field-val"><ul style="padding-left:16px;margin:0;font-size:12px;">${proc||'<li>—</li>'}</ul></div></div>
+            <div class="abp-field-row"><div class="abp-field-lbl">Actitudinales</div>
+              <div class="abp-field-val"><ul style="padding-left:16px;margin:0;font-size:12px;">${acti||'<li>—</li>'}</ul></div></div>
+            <div class="abp-field-row"><div class="abp-field-lbl">Elem. Competencia</div>
+              <div class="abp-field-val"><ul style="padding-left:16px;margin:0;font-size:12px;">${elems||'<li>—</li>'}</ul></div></div>
+            <div class="abp-field-row"><div class="abp-field-lbl">Problema</div>
+              <div class="abp-field-val" style="font-style:italic;">${escABP(cur.problema||'—')}</div></div>
+            <div class="abp-field-row" style="border:none"><div class="abp-field-lbl">Pregunta desafiante</div>
+              <div class="abp-field-val" style="font-style:italic;color:var(--blue);">${escABP(cur.pregunta||'—')}</div></div>`;
+
+        // ── Bloque FASES ABP ──
+        const FASE_ICONS = ['🔍','📐','🛠️','🎤'];
+        const FASE_COLORS = ['var(--blue)','var(--accent)','#f97316','#ec4899'];
+        // Helper: combina actividades nuevas (inicio/desarrollo/cierre) con formato legacy
+        function combinarActividades(f) {
+            const partes = [];
+            if (f.actividades_inicio && f.actividades_inicio.length) {
+                partes.push('<li style="color:#bf8f00;font-weight:700;margin-top:4px">Inicio:</li>');
+                f.actividades_inicio.forEach(a => partes.push(`<li style="margin-left:8px;margin-bottom:2px">${escABP(a)}</li>`));
+            }
+            if (f.actividades_desarrollo && f.actividades_desarrollo.length) {
+                partes.push('<li style="color:#bf8f00;font-weight:700;margin-top:4px">Desarrollo:</li>');
+                f.actividades_desarrollo.forEach(a => partes.push(`<li style="margin-left:8px;margin-bottom:2px">${escABP(a)}</li>`));
+            }
+            if (f.actividades_cierre && f.actividades_cierre.length) {
+                partes.push('<li style="color:#bf8f00;font-weight:700;margin-top:4px">Cierre:</li>');
+                f.actividades_cierre.forEach(a => partes.push(`<li style="margin-left:8px;margin-bottom:2px">${escABP(a)}</li>`));
+            }
+            // Fallback formato legacy
+            if (!partes.length && f.actividades) {
+                f.actividades.forEach(a => partes.push(`<li style="margin-bottom:2px">${escABP(a)}</li>`));
+            }
+            return partes.join('') || '<li>—</li>';
+        }
+
+        // Helper: formatea STEAM (objeto nuevo o array legacy)
+        function formatearSTEAM(f) {
+            if (f.steam && typeof f.steam === 'object' && !Array.isArray(f.steam)) {
+                const labels = {ciencia:'Ciencia',tecnologia:'Tecnología',ingenieria:'Ingeniería',arte:'Arte',matematica:'Matemática'};
+                return Object.entries(f.steam).filter(([k,v])=>v).map(([k,v]) =>
+                    `<li style="margin-bottom:3px"><strong style="color:var(--blue)">${labels[k]||k}:</strong> ${escABP(v)}</li>`
+                ).join('') || '<li>—</li>';
+            }
+            return (f.steam||[]).map(s=>`<li style="margin-bottom:2px">${escABP(s)}</li>`).join('') || '<li>—</li>';
+        }
+
+        document.getElementById('abp-fa-content').innerHTML = fases.map((f,i) => `
+            <div class="abp-fase-card" style="border-left-color:${FASE_COLORS[i]||'var(--border)'}">
+                <div class="abp-fase-titulo" style="color:${FASE_COLORS[i]||'var(--text)'}">
+                    ${FASE_ICONS[i]||'•'} Fase ${f.numero||i+1}: ${escABP(f.nombre||'')}
+                    <span style="font-size:10px;font-weight:400;color:var(--text-muted);margin-left:8px;">⏱ ${escABP(f.tiempo||'')}</span>
+                </div>
+                ${(f.competencias_especificas && f.competencias_especificas.length) ? `
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">
+                    <strong style="color:var(--blue)">Competencias específicas:</strong>
+                    ${f.competencias_especificas.map(c=>escABP(c)).join(' · ')}
+                </div>` : ''}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;">
+                    <div>
+                        <div style="font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Actividades</div>
+                        <ul style="padding-left:14px;margin:0;color:var(--text);">
+                            ${combinarActividades(f)}
+                        </ul>
+                    </div>
+                    <div>
+                        <div style="font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">STEAM</div>
+                        <ul style="padding-left:14px;margin:0;color:var(--text);">
+                            ${formatearSTEAM(f)}
+                        </ul>
+                    </div>
+                    <div>
+                        <div style="font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Rol Docente</div>
+                        <ul style="padding-left:14px;margin:0;color:var(--text);">
+                            ${(f.rol_docente||[]).map(r=>`<li style="margin-bottom:2px">${escABP(r)}</li>`).join('')||'<li>—</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div style="font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Rol Estudiante</div>
+                        <ul style="padding-left:14px;margin:0;color:var(--text);">
+                            ${(f.rol_estudiante||[]).map(r=>`<li style="margin-bottom:2px">${escABP(r)}</li>`).join('')||'<li>—</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div style="font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Recursos</div>
+                        <ul style="padding-left:14px;margin:0;color:var(--text);">
+                            ${(f.recursos||[]).map(r=>`<li style="margin-bottom:2px">${escABP(r)}</li>`).join('')||'<li>—</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div style="font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Evaluación</div>
+                        <ul style="padding-left:14px;margin:0;color:var(--text);">
+                            ${(f.instrumentos_evaluacion||f.evaluacion||[]).map(e=>`<li style="margin-bottom:2px">${escABP(e)}</li>`).join('')||'<li>—</li>'}
+                        </ul>
+                    </div>
+                </div>
+            </div>`).join('') || '<div style="color:var(--text-muted);font-size:12px;">Sin fases generadas.</div>';
+
+        // ── Bloque INSTRUMENTOS ──
+        const cotejo = (inst.lista_cotejo || []);
+        const rProc  = (inst.rubrica_proceso || []);
+        const rFinal = (inst.rubrica_final  || []);
+
+        document.getElementById('abp-inst-content').innerHTML = `
+            <div style="font-family:var(--font-display);font-size:11px;font-weight:700;
+                        text-transform:uppercase;letter-spacing:.6px;color:var(--blue);
+                        margin-bottom:10px;">📋 Lista de Cotejo — Fase 1</div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:18px;">
+                <thead><tr style="background:#1F4E79;color:#fff;">
+                    <th style="padding:6px 10px;text-align:left;border:1px solid #333;">Criterio / Indicador</th>
+                    <th style="padding:6px 10px;width:50px;border:1px solid #333;">Sí</th>
+                    <th style="padding:6px 10px;width:50px;border:1px solid #333;">No</th>
+                </tr></thead>
+                <tbody>${cotejo.map((c,i)=>`<tr style="background:${i%2?'var(--surface2)':'var(--surface)'}">
+                    <td style="padding:5px 10px;border:1px solid var(--border)">${escABP(c)}</td>
+                    <td style="text-align:center;border:1px solid var(--border)">□</td>
+                    <td style="text-align:center;border:1px solid var(--border)">□</td>
+                </tr>`).join('')||'<tr><td colspan="3" style="padding:8px;color:var(--text-muted)">—</td></tr>'}</tbody>
+            </table>
+
+            <div style="font-family:var(--font-display);font-size:11px;font-weight:700;
+                        text-transform:uppercase;letter-spacing:.6px;color:var(--blue);
+                        margin-bottom:10px;">📊 Rúbrica de Proceso — Fase 2</div>
+            <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:18px;">
+                <thead><tr style="background:#1F4E79;color:#fff;">
+                    <th style="padding:5px 8px;text-align:left;border:1px solid #333;min-width:80px">Criterio</th>
+                    <th style="padding:5px 8px;border:1px solid #333">Destacado</th>
+                    <th style="padding:5px 8px;border:1px solid #333">Satisfactorio</th>
+                    <th style="padding:5px 8px;border:1px solid #333">Básico</th>
+                    <th style="padding:5px 8px;border:1px solid #333">En proceso</th>
+                </tr></thead>
+                <tbody>${rProc.map((r,i)=>`<tr style="background:${i%2?'var(--surface2)':'var(--surface)'}">
+                    <td style="padding:5px 8px;font-weight:600;border:1px solid var(--border)">${escABP(r.criterio||r.nivel||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.destacado||r.excelente||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.satisfactorio||r.bueno||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.basico||r['básico']||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.en_proceso||r.bajo||'')}</td>
+                </tr>`).join('')||'<tr><td colspan="5" style="padding:8px;color:var(--text-muted)">—</td></tr>'}</tbody>
+            </table>
+
+            <div style="font-family:var(--font-display);font-size:11px;font-weight:700;
+                        text-transform:uppercase;letter-spacing:.6px;color:var(--blue);
+                        margin-bottom:10px;">🏆 Rúbrica Final — Fase 4 (20/15/10/5%)</div>
+            <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                <thead><tr style="background:#1F4E79;color:#fff;">
+                    <th style="padding:5px 8px;text-align:left;border:1px solid #333;min-width:80px">Criterio</th>
+                    <th style="padding:5px 8px;border:1px solid #333">Excelente 20%</th>
+                    <th style="padding:5px 8px;border:1px solid #333">Bueno 15%</th>
+                    <th style="padding:5px 8px;border:1px solid #333">Básico 10%</th>
+                    <th style="padding:5px 8px;border:1px solid #333">Bajo 5%</th>
+                </tr></thead>
+                <tbody>${rFinal.map((r,i)=>`<tr style="background:${i%2?'var(--surface2)':'var(--surface)'}">
+                    <td style="padding:5px 8px;font-weight:600;border:1px solid var(--border)">${escABP(r.criterio||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.excelente_20||r.excelente||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.bueno_15||r.bueno||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.basico_10||r.basico||r['básico']||'')}</td>
+                    <td style="padding:5px 8px;border:1px solid var(--border)">${escABP(r.bajo_5||r.bajo||'')}</td>
+                </tr>`).join('')||'<tr><td colspan="5" style="padding:8px;color:var(--text-muted)">—</td></tr>'}</tbody>
+            </table>`;
+
+        // Mostrar panel
+        document.getElementById('abp-preview').style.display = 'block';
+    }
+
+    // ── Guardado automático + historial de planificaciones ABP ──────────────
+    async function guardarPlanABPActual() {
+        if (!_planABP) return;
+        try {
+            const res = await fetch('/api/planificacion/abp/guardar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plan: _planABP, id: _planABPId }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                _planABPId = data.id;
+                cargarGuardadasABP();
+            }
+        } catch (e) { /* guardado silencioso — no bloquea el flujo si falla */ }
+    }
+
+    async function cargarGuardadasABP() {
+        const box = document.getElementById('abp-guardadas-list');
+        try {
+            const res = await fetch('/api/planificacion/abp/historial');
+            const data = await res.json();
+            if (!data.length) {
+                box.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:8px;">Aún no hay planificaciones ABP guardadas.</div>';
+                return;
+            }
+            box.innerHTML = data.map(item => {
+                const fecha = (item.creado_en || '').slice(0, 10);
+                const tit = item.titulo_proyecto || item.materia || 'Sin título';
+                return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                             padding:8px 10px;display:flex;justify-content:space-between;align-items:center;
+                             gap:8px;cursor:pointer;" onclick="cargarPlanABPGuardado(${item.id})">
+                    <div style="min-width:0;">
+                        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escABP(tit)}</div>
+                        <div style="font-size:10px;color:var(--text-muted);">${escABP(item.materia||'')} · ${escABP(item.grado||'')} · ${fecha}</div>
+                    </div>
+                    <button onclick="event.stopPropagation();eliminarPlanABPGuardado(${item.id})"
+                            style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;flex-shrink:0;padding:4px;"
+                            title="Eliminar">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            box.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:8px;">Error al cargar el historial.</div>';
+        }
+    }
+
+    async function cargarPlanABPGuardado(id) {
+        try {
+            const res = await fetch('/api/planificacion/abp/historial/' + id);
+            const data = await res.json();
+            if (!res.ok || data.error) { alert(data.error || 'Error al cargar la planificación'); return; }
+            _planABP = data.plan;
+            _planABPId = data.id;
+            document.getElementById('abp-estado-inicial').style.display = 'none';
+            document.getElementById('abp-loading').style.display = 'none';
+            renderPlanABP(_planABP);
+        } catch (e) { alert('Error de conexión'); }
+    }
+
+    async function eliminarPlanABPGuardado(id) {
+        if (!confirm('¿Eliminar esta planificación guardada? No se puede deshacer.')) return;
+        try {
+            await fetch('/api/planificacion/abp/historial/' + id, { method: 'DELETE' });
+            if (_planABPId === id) _planABPId = null;
+            cargarGuardadasABP();
+        } catch (e) {}
+    }
+
+    // ── Tabs internos del preview ───────────────────────────────────────────
+    function abpInnerTab(nombre, btn) {
+        document.querySelectorAll('.abp-inner-panel').forEach(p => p.style.display = 'none');
+        document.querySelectorAll('.abp-inner-tab').forEach(b => b.classList.remove('active'));
+        document.getElementById('abp-inner-' + nombre).style.display = 'block';
+        btn.classList.add('active');
+    }
+
+    // ── Exportar a .docx ───────────────────────────────────────────────────
+    async function exportarDocx() {
+        if (!_planABP) return;
+        const btn = document.getElementById('btn-exportar-docx');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/planificacion/exportar-docx', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plan: _planABP }),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Error generando el documento');
+            }
+
+            // Descargar el blob
+            const blob = await res.blob();
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            const asig = (_planABP.docente?.asignatura || 'Plan').replace(/\s+/g,'_');
+            const tit  = (_planABP.proyecto?.titulo    || 'ABP' ).substring(0,30).replace(/\s+/g,'_');
+            a.href     = url;
+            a.download = `Plan_ABP_${asig}_${tit}.docx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+        } catch(err) {
+            alert('Error al generar el .docx: ' + err.message);
+        } finally {
+            btn.innerHTML = '<i class="fas fa-file-word"></i> Descargar .docx';
+            btn.disabled  = false;
+        }
+    }
+
+    // ── Botón editar — permite volver al formulario con datos precargados ──
+    function editarPlanABP() {
+        if (!_planABP) return;
+        const doc  = _planABP.docente  || {};
+        const proy = _planABP.proyecto || {};
+        // Precargar formulario con los datos actuales
+        if (doc.asignatura) document.getElementById('abp-asignatura').value = doc.asignatura;
+        if (proy.titulo)     document.getElementById('abp-titulo').value    = proy.titulo.replace(/"/g,'');
+        if (proy.fecha_inicio) document.getElementById('abp-fecha-ini').value = proy.fecha_inicio;
+        if (proy.fecha_cierre) document.getElementById('abp-fecha-fin').value = proy.fecha_cierre;
+        if (proy.duracion)   document.getElementById('abp-duracion').value  = proy.duracion;
+        if (proy.producto_final) document.getElementById('abp-producto').value = proy.producto_final;
+        // Hacer scroll al formulario
+        document.getElementById('abp-asignatura').scrollIntoView({ behavior:'smooth' });
+    }
+
+    // ── Helper: escapar HTML ────────────────────────────────────────────────
+    function escABP(s) {
+        if (!s) return '';
+        return String(s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+
+function _actualizarBadge(badgeId, modelo, tipo) {
+  var el = document.getElementById(badgeId);
+  if (!el) return;
+  var nombre = modelo && modelo.includes('gemini') ? 'gemini-1.5-pro' : 'llama-3.3-70b';
+  var icono = modelo && modelo.includes('gemini') ? '✦✦' : '✦';
+  el.textContent = icono + ' ' + nombre + ' · ' + tipo;
+  el.style.background = modelo && modelo.includes('gemini') 
+    ? 'rgba(66,133,244,.15)' : 'rgba(55,138,221,.1)';
+  el.style.borderColor = modelo && modelo.includes('gemini') 
+    ? 'rgba(66,133,244,.3)' : 'rgba(55,138,221,.2)';
+  el.style.color = modelo && modelo.includes('gemini') ? '#4285f4' : 'var(--accent)';
+}
+
+</script>
+</body>
+</html>

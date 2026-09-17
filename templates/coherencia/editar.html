@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ matriz.asignatura }} — Coherencia Horizontal — Axula</title>
+<link rel="stylesheet" href="/static/theme.css">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh}
+.top{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;
+     background:var(--surface);border-bottom:1px solid var(--border)}
+.top h1{font-family:var(--font-display);font-size:1.2rem;font-weight:800}
+.top .r{display:flex;gap:12px;align-items:center;font-size:.85rem;color:var(--muted)}
+.top a{color:var(--accent);text-decoration:none;font-weight:600;font-size:.85rem}
+.c{max-width:1320px;margin:0 auto;padding:26px 24px 100px}
+.flash{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:.85rem}
+.flash.error{background:rgba(224,72,72,.12);color:#F8A0A0;border-left:3px solid var(--danger)}
+.flash.success{background:rgba(3,140,140,.1);color:var(--accent);border-left:3px solid var(--accent)}
+
+.proposito{background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+           padding:13px 16px;font-size:.8rem;color:var(--muted);line-height:1.65;margin-bottom:18px}
+.proposito b{color:var(--text)}
+
+.header-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+             padding:18px 22px;margin-bottom:18px;display:flex;justify-content:space-between;
+             align-items:flex-start;flex-wrap:wrap;gap:14px}
+.header-card h2{font-size:1.05rem;font-weight:800;margin-bottom:6px}
+.header-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
+.header-meta b{color:var(--text)}
+.header-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+.instructivo{background:rgba(3,140,140,.08);border:1px solid rgba(3,140,140,.25);border-radius:10px;
+             padding:12px 16px;font-size:.8rem;color:var(--text);line-height:1.6;margin-bottom:20px;
+             display:flex;gap:10px;align-items:flex-start}
+.instructivo i{color:var(--accent);margin-top:2px}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;
+     border:none;font-weight:600;cursor:pointer;font-size:.84rem;text-decoration:none;
+     transition:opacity .15s}
+.btn:hover{opacity:.88}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-word{background:#2B579A;color:#fff}
+.btn-navy{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:transparent;color:#E04848;border:none;padding:4px 8px;cursor:pointer}
+.btn-sm{padding:5px 12px;font-size:.78rem}
+
+.periodo{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+         margin-bottom:18px;overflow:hidden}
+.periodo-head{background:#C1E4F5;color:#0d3d4d;padding:10px 18px;
+              display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.periodo-head .titulo{font-size:.88rem;font-weight:800}
+.periodo-body{padding:16px 18px}
+
+.f{display:flex;flex-direction:column;gap:5px}
+.f label{font-size:.7rem;font-weight:700;color:var(--muted);
+         text-transform:uppercase;letter-spacing:.05em}
+.f input,.f textarea{padding:8px 11px;border-radius:8px;border:1px solid var(--border);
+                   background:var(--surface2);color:var(--text);
+                   font-size:.83rem;font-family:var(--font-body);width:100%}
+.f input:focus,.f textarea:focus{outline:none;border-color:var(--accent)}
+.f textarea{resize:vertical;min-height:40px}
+
+.comp-f{margin-bottom:16px;max-width:640px}
+
+.tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:10px}
+table{width:100%;border-collapse:collapse;font-size:.8rem;min-width:960px}
+th{background:var(--surface2);color:var(--text);text-align:center;padding:7px 8px;font-size:.66rem;
+   font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+   border:1px solid var(--border)}
+td{padding:5px;border:1px solid var(--border);vertical-align:top}
+td textarea{min-height:44px}
+.col-rae{width:19%}
+.col-cont{width:15%}
+.col-sm{width:11%}
+.col-x{width:34px;text-align:center;vertical-align:middle}
+
+.add-row-wrap{padding:8px 0 0}
+
+.readonly-note{background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+               padding:14px 16px;color:var(--muted);font-size:.82rem;margin-top:14px}
+
+.save-bar{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--border);
+          padding:14px 0;margin-top:10px;display:flex;justify-content:flex-end;gap:10px;
+          box-shadow:0 -6px 16px rgba(0,0,0,.06)}
+.save-bar .hint{font-size:.75rem;color:var(--muted);margin-right:auto;align-self:center}
+</style>
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<div class="top">
+  <h1><i class="fas fa-diagram-project" style="color:var(--accent);margin-right:8px"></i>Coherencia Horizontal</h1>
+  <div class="r">
+    <a href="/coherencia"><i class="fas fa-arrow-left"></i> Mis Matrices</a>
+    <a href="/profesor"><i class="fas fa-chalkboard-teacher"></i> Portal</a>
+  </div>
+</div>
+
+<div class="c">
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="header-card">
+    <div>
+      <h2>{{ matriz.asignatura or 'Sin asignatura' }}</h2>
+      <div class="header-meta">
+        <span><b>Docente:</b> {{ matriz.docente_nombre }}</span>
+        {% if matriz.mencion %}<span><b>Mención:</b> {{ matriz.mencion }}</span>{% endif %}
+        <span><b>Grado:</b> {{ matriz.grado }}{% if matriz.seccion %} — {{ matriz.seccion }}{% endif %}</span>
+        <span><b>Año escolar:</b> {{ matriz.anio_escolar }}</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <a href="/coherencia/{{ matriz.id }}/docx" class="btn btn-word btn-sm">
+        <i class="fas fa-file-word"></i> Descargar Word
+      </a>
+      <a href="/coherencia/{{ matriz.id }}/imprimir" target="_blank" class="btn btn-navy btn-sm">
+        <i class="fas fa-print"></i> Vista previa
+      </a>
+    </div>
+  </div>
+
+  <div class="proposito">
+    <b>Propósito:</b> {{ proposito }}
+  </div>
+
+  {% if puede_editar %}
+  <div class="instructivo">
+    <i class="fas fa-circle-info"></i>
+    <div>
+      Llena los 4 períodos (Competencia Laboral + filas de RAE) — usa <b>"+ Agregar fila"</b>
+      para sumar más RAE dentro de un período, sin que se borre lo que ya escribiste en los
+      demás. Cuando termines los 4, baja hasta el final y presiona
+      <b>una sola vez</b> "Guardar todo y generar Word" — guarda la matriz completa y descarga
+      el documento en un solo paso.
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="POST" id="form-matriz">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="accion" value="guardar_todo">
+
+    {% for p in periodos %}
+    <div class="periodo">
+      <div class="periodo-head">
+        <span class="titulo">{{ p.titulo }}</span>
+      </div>
+      <div class="periodo-body">
+
+        <div class="f comp-f">
+          <label>Competencia Laboral</label>
+          {% if puede_editar %}
+          <input type="text" name="competencia_{{ p.numero }}" value="{{ p.competencia_laboral or '' }}"
+                 placeholder="Competencia laboral de este período…">
+          {% else %}
+          <div style="font-size:.85rem;padding:6px 0">{{ p.competencia_laboral or '—' }}</div>
+          {% endif %}
+        </div>
+
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th rowspan="2" class="col-rae">Resultados de aprendizaje esperados (RAE)</th>
+                <th colspan="3">Contenidos</th>
+                <th rowspan="2" class="col-sm">Producto</th>
+                <th rowspan="2" class="col-sm">Recursos</th>
+                {% if puede_editar %}<th rowspan="2" class="col-x"></th>{% endif %}
+              </tr>
+              <tr>
+                <th class="col-cont">Conceptos</th>
+                <th class="col-cont">Procedimientos</th>
+                <th class="col-cont">Actitudes y valores</th>
+              </tr>
+            </thead>
+            <tbody id="filas-{{ p.numero }}">
+              {% if not puede_editar and not p.filas %}
+              <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px">Sin RAE registrados.</td></tr>
+              {% endif %}
+              {% for f in p.filas %}
+              <tr>
+                {% if puede_editar %}
+                <td><textarea name="rae_{{ p.numero }}[]">{{ f.rae }}</textarea></td>
+                <td><textarea name="conceptos_{{ p.numero }}[]">{{ f.conceptos or '' }}</textarea></td>
+                <td><textarea name="procedimientos_{{ p.numero }}[]">{{ f.procedimientos or '' }}</textarea></td>
+                <td><textarea name="actitudes_{{ p.numero }}[]">{{ f.actitudes or '' }}</textarea></td>
+                <td><textarea name="producto_{{ p.numero }}[]">{{ f.producto or '' }}</textarea></td>
+                <td><textarea name="recursos_{{ p.numero }}[]">{{ f.recursos or '' }}</textarea></td>
+                <td class="col-x"><button type="button" class="btn-danger" onclick="this.closest('tr').remove()" title="Quitar fila"><i class="fas fa-xmark"></i></button></td>
+                {% else %}
+                <td>{{ f.rae }}</td>
+                <td>{{ f.conceptos or '—' }}</td>
+                <td>{{ f.procedimientos or '—' }}</td>
+                <td>{{ f.actitudes or '—' }}</td>
+                <td>{{ f.producto or '—' }}</td>
+                <td>{{ f.recursos or '—' }}</td>
+                {% endif %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {% if puede_editar %}
+        <div class="add-row-wrap">
+          <button type="button" class="btn btn-navy btn-sm" onclick="agregarFila({{ p.numero }})">
+            <i class="fas fa-plus"></i> Agregar fila
+          </button>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if puede_editar %}
+    <div class="save-bar">
+      <span class="hint">Guarda los 4 períodos a la vez y descarga el Word actualizado.</span>
+      <button type="submit" class="btn btn-primary" id="btn-guardar-todo">
+        <i class="fas fa-floppy-disk"></i> Guardar todo y generar Word
+      </button>
+    </div>
+    {% endif %}
+  </form>
+
+  {% if not puede_editar %}
+  <div class="readonly-note">
+    <i class="fas fa-eye"></i> Modo solo lectura — esta matriz pertenece a {{ matriz.docente_nombre }}.
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+function agregarFila(numero) {
+  var tbody = document.getElementById('filas-' + numero);
+  var tr = document.createElement('tr');
+  var campos = ['rae', 'conceptos', 'procedimientos', 'actitudes', 'producto', 'recursos'];
+  campos.forEach(function(campo) {
+    var td = document.createElement('td');
+    var ta = document.createElement('textarea');
+    ta.name = campo + '_' + numero + '[]';
+    td.appendChild(ta);
+    tr.appendChild(td);
+  });
+  var tdX = document.createElement('td');
+  tdX.className = 'col-x';
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-danger';
+  btn.title = 'Quitar fila';
+  btn.innerHTML = '<i class="fas fa-xmark"></i>';
+  btn.onclick = function() { tr.remove(); };
+  tdX.appendChild(btn);
+  tr.appendChild(tdX);
+  tbody.appendChild(tr);
+  tr.querySelector('textarea').focus();
+}
+
+document.getElementById('form-matriz') && document.getElementById('form-matriz').addEventListener('submit', function() {
+  var btn = document.getElementById('btn-guardar-todo');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando y generando Word…';
+  }
+});
+
+// Tras guardar, el servidor redirige aquí con ?generado=1 — disparamos la
+// descarga del Word en un iframe oculto, sin navegar fuera de esta página
+// (evita bloqueadores de pop-up y mantiene visible el mensaje de "guardado").
+if (window.location.search.indexOf('generado=1') !== -1) {
+  var f = document.createElement('iframe');
+  f.style.display = 'none';
+  f.src = '/coherencia/{{ matriz.id }}/docx';
+  document.body.appendChild(f);
+  // Limpiar el query param para que un refresh no vuelva a descargar
+  if (window.history && window.history.replaceState) {
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+}
+</script>
+
+</body>
+</html>

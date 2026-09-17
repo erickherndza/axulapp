@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>POA — {{ poa.asignatura }} | Axula</title>
+<link rel="stylesheet" href="/static/theme.css">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh}
+
+/* TOP BAR */
+.top{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;
+     background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}
+.top h1{font-family:var(--font-display);font-size:1.1rem;font-weight:800}
+.top .r{display:flex;gap:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.top a{color:var(--accent);text-decoration:none;font-weight:600;font-size:.85rem}
+
+/* LAYOUT */
+.c{max-width:1400px;margin:0 auto;padding:24px}
+
+/* HEADER CARD */
+.poa-head{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+          padding:20px 24px;margin-bottom:20px}
+.poa-inst{font-size:.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+          letter-spacing:.07em;margin-bottom:6px}
+.poa-head-top{display:flex;align-items:flex-start;justify-content:space-between;
+              flex-wrap:wrap;gap:12px}
+.poa-head h2{font-size:1.15rem;font-weight:800;margin-bottom:4px}
+.poa-head .meta{font-size:.8rem;color:var(--muted);margin-bottom:6px}
+.poa-head .meta span{margin-right:14px}
+.obj-general{font-size:.85rem;color:var(--text);margin-top:8px;
+             padding:10px 14px;background:rgba(3,140,140,.07);border-radius:8px;
+             border-left:3px solid var(--accent)}
+.poa-info-line{font-size:.82rem;color:var(--muted);margin-top:6px}
+.poa-info-line strong{color:var(--text)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;
+       border-radius:20px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.badge::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge-borrador{background:var(--surface2);color:var(--muted)}
+.badge-enviado{background:rgba(38,97,246,.15);color:#8BAEF8}
+.badge-aprobado{background:rgba(46,158,104,.12);color:#2E9E68}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;
+     border:none;font-weight:600;cursor:pointer;font-size:.82rem;text-decoration:none;
+     transition:opacity .15s}
+.btn:hover{opacity:.88}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-green{background:#2E9E68;color:#fff}
+.btn-sm{padding:5px 10px;font-size:.76rem}
+
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.stat-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:4px}
+.stat-value{font-size:1.35rem;font-weight:800;color:var(--text)}
+.stat-value.accent{color:var(--accent)}
+
+/* TABLE */
+.section-label{font-size:.75rem;font-weight:700;color:var(--muted);
+               text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+.tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+          overflow-x:auto;margin-bottom:20px}
+table{width:100%;border-collapse:collapse;font-size:.79rem;min-width:1200px}
+thead th{background:var(--surface2);color:var(--muted);font-size:.67rem;font-weight:700;
+         text-transform:uppercase;letter-spacing:.06em;padding:9px 10px;
+         text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+tbody tr{border-bottom:1px solid var(--border)}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--hover)}
+td{padding:9px 10px;vertical-align:top}
+td.num{color:var(--muted);font-size:.75rem;white-space:nowrap;text-align:center}
+td.act-name{font-weight:600;color:var(--text);max-width:180px}
+td.long{max-width:160px;color:var(--muted);font-size:.77rem}
+td.pres{font-family:var(--font-mono);font-size:.78rem;color:var(--accent);white-space:nowrap}
+td.short{font-size:.76rem;color:var(--muted);white-space:nowrap}
+.row-total td{font-weight:700;background:var(--surface2);border-top:2px solid var(--border)}
+
+/* ACTIVITY BADGE */
+.act-badge{display:inline-block;padding:2px 8px;border-radius:20px;
+           font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.act-badge.pendiente{background:rgba(196,138,30,.15);color:#C48A1E}
+.act-badge.en_proceso{background:rgba(38,97,246,.15);color:#8BAEF8}
+.act-badge.completada{background:rgba(46,158,104,.15);color:#2E9E68}
+
+/* SELECT ESTADO INLINE */
+.estado-sel{border:1px solid var(--border);border-radius:6px;padding:4px 8px;
+            font-size:.73rem;background:var(--surface2);color:var(--text);cursor:pointer;max-width:110px}
+
+/* FORM */
+.form-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+           overflow:hidden;margin-bottom:24px}
+.form-head{background:var(--surface2);padding:12px 18px;border-bottom:1px solid var(--border)}
+.form-head h3{font-size:.9rem;font-weight:700}
+.form-body{padding:18px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.col-full{grid-column:1/-1}
+.f{display:flex;flex-direction:column;gap:4px}
+.f label{font-size:.72rem;font-weight:700;color:var(--muted);
+         text-transform:uppercase;letter-spacing:.05em}
+.f input,.f select,.f textarea{padding:8px 11px;border-radius:8px;
+  border:1px solid var(--border);background:var(--surface2);color:var(--text);
+  font-size:.83rem;font-family:var(--font-body);width:100%}
+.f input:focus,.f select:focus,.f textarea:focus{outline:none;border-color:var(--accent)}
+.f textarea{resize:vertical;min-height:60px}
+.form-foot{padding:12px 18px;border-top:1px solid var(--border);
+           display:flex;justify-content:flex-end;gap:8px;background:var(--surface2)}
+
+/* FLASH + INFO */
+.flash{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:.84rem}
+.flash.success{background:rgba(3,140,140,.1);color:var(--accent);border-left:3px solid var(--accent)}
+.flash.error{background:rgba(224,72,72,.12);color:#F8A0A0;border-left:3px solid var(--danger)}
+.info-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+          padding:12px 16px;font-size:.84rem;color:var(--muted)}
+
+@media(max-width:768px){
+  .form-grid{grid-template-columns:1fr}
+  .col-full{grid-column:1}
+  .poa-head-top{flex-direction:column;align-items:flex-start}
+}
+</style>
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<div class="top">
+  <h1><i class="fas fa-clipboard-list" style="color:var(--accent);margin-right:8px"></i>
+      POA — {{ poa.asignatura }}</h1>
+  <div class="r">
+    <a href="/poa"><i class="fas fa-arrow-left"></i> Mis POAs</a>
+    <a href="/profesor"><i class="fas fa-chalkboard-teacher"></i> Portal</a>
+    <a href="/home"><i class="fas fa-home"></i> Inicio</a>
+  </div>
+</div>
+
+<div class="c">
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <!-- Cabecera del POA -->
+  <div class="poa-head">
+    <div class="poa-inst">Viceministerio de Planificación y Desarrollo Educativo · Centro Educativo en Artes Benito Juárez</div>
+    <div class="poa-head-top">
+      <div style="flex:1;min-width:0">
+        <h2>{{ poa.asignatura }}</h2>
+        <div class="meta">
+          <span>{% if poa.area %}<i class="fas fa-layer-group" style="margin-right:4px;opacity:.6"></i>{{ poa.area }}{% endif %}</span>
+          <span><i class="fas fa-calendar-alt" style="margin-right:4px;opacity:.6"></i>{{ poa.anio_escolar }}</span>
+          <span>{% if poa.trimestre %}T{{ poa.trimestre }}{% else %}Anual{% endif %}</span>
+          <span style="opacity:.6">Actualizado {{ poa.fecha_actualizacion[:10] }}</span>
+        </div>
+        {% if poa.objetivo_general %}
+        <div class="obj-general">
+          <i class="fas fa-bullseye" style="color:var(--accent);margin-right:6px"></i>
+          <strong>Objetivo general:</strong> {{ poa.objetivo_general }}
+        </div>
+        {% endif %}
+        {% if poa.integrantes %}
+        <div class="poa-info-line">
+          <i class="fas fa-users" style="margin-right:5px;opacity:.6"></i>
+          <strong>Integrantes:</strong> {{ poa.integrantes }}
+        </div>
+        {% endif %}
+        {% if poa.responsable_mesa %}
+        <div class="poa-info-line">
+          <i class="fas fa-user-tie" style="margin-right:5px;opacity:.6"></i>
+          <strong>Responsable de la mesa:</strong> {{ poa.responsable_mesa }}
+        </div>
+        {% endif %}
+      </div>
+      <div class="actions">
+        <span class="badge badge-{{ poa.estado }}">{{ poa.estado }}</span>
+
+        {% if puede_editar %}
+        <form method="POST" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="accion" value="enviar">
+          <button type="submit" class="btn btn-ghost btn-sm"
+                  onclick="return confirm('¿Enviar el POA para revisión? No podrás editarlo después.')">
+            <i class="fas fa-paper-plane"></i> Enviar
+          </button>
+        </form>
+        {% endif %}
+
+        {% if es_admin and poa.estado == 'enviado' %}
+        <form method="POST" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="accion" value="aprobar">
+          <button type="submit" class="btn btn-green btn-sm">
+            <i class="fas fa-check"></i> Aprobar
+          </button>
+        </form>
+        {% endif %}
+
+        {% if es_admin and poa.estado in ('enviado', 'aprobado') %}
+        <form method="POST" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="accion" value="devolver">
+          <button type="submit" class="btn btn-ghost btn-sm"
+                  onclick="return confirm('¿Devolver a borrador?')">
+            <i class="fas fa-undo"></i> Devolver
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  {% set total_pres = actividades | sum(attribute='presupuesto') %}
+  {% set n_comp = actividades | selectattr('estado', 'equalto', 'completada') | list | length %}
+  {% set n_pend = actividades | selectattr('estado', 'equalto', 'pendiente') | list | length %}
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Total actividades</div>
+      <div class="stat-value">{{ actividades | length }}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Total costo</div>
+      <div class="stat-value accent" style="font-size:.9rem;padding-top:5px">
+        RD$ {{ "{:,.2f}".format(total_pres) }}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Pendientes</div>
+      <div class="stat-value" style="color:#C48A1E">{{ n_pend }}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Completadas</div>
+      <div class="stat-value" style="color:#2E9E68">{{ n_comp }}</div>
+    </div>
+  </div>
+
+  <!-- Tabla de 9 columnas (plantilla CBJ) -->
+  <p class="section-label">Actividades registradas</p>
+  <div class="tbl-wrap">
+    {% if actividades %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px;text-align:center">No.</th>
+          <th style="min-width:160px">Actividad / Proyecto</th>
+          <th style="min-width:150px">Acciones principales</th>
+          <th style="min-width:130px">¿Qué necesitamos?</th>
+          <th style="min-width:90px">Cantidad</th>
+          <th style="min-width:110px">Costo (RD$)</th>
+          <th style="min-width:100px">¿Cuándo?</th>
+          <th style="min-width:140px">Evidencia / Producto</th>
+          <th style="min-width:130px">Responsable(s)</th>
+          <th style="min-width:100px">Estado</th>
+          {% if puede_editar %}<th style="width:40px"></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for act in actividades %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td class="act-name">{{ act.actividad }}</td>
+          <td class="long">{{ act.acciones or '—' }}</td>
+          <td class="long">{{ act.recursos or '—' }}</td>
+          <td class="short">{{ act.cantidad or '—' }}</td>
+          <td class="pres">RD$ {{ "{:,.2f}".format(act.presupuesto or 0) }}</td>
+          <td class="short">{{ act.cuando or '—' }}</td>
+          <td class="long">{{ act.evidencia or '—' }}</td>
+          <td class="long">{{ act.responsable }}</td>
+          <td>
+            {% if puede_editar %}
+            <form method="POST" style="margin:0">
+              <input type="hidden" name="csrf_token"   value="{{ csrf_token }}">
+              <input type="hidden" name="accion"       value="cambiar_estado_actividad">
+              <input type="hidden" name="actividad_id" value="{{ act.id }}">
+              <select name="nuevo_estado" class="estado-sel" onchange="this.form.submit()">
+                <option value="pendiente"  {% if act.estado=='pendiente'  %}selected{% endif %}>Pendiente</option>
+                <option value="en_proceso" {% if act.estado=='en_proceso' %}selected{% endif %}>En proceso</option>
+                <option value="completada" {% if act.estado=='completada' %}selected{% endif %}>Completada</option>
+              </select>
+            </form>
+            {% else %}
+            <span class="act-badge {{ act.estado }}">{{ act.estado | replace('_',' ') }}</span>
+            {% endif %}
+          </td>
+          {% if puede_editar %}
+          <td>
+            <form method="POST" style="margin:0">
+              <input type="hidden" name="csrf_token"   value="{{ csrf_token }}">
+              <input type="hidden" name="accion"       value="eliminar_actividad">
+              <input type="hidden" name="actividad_id" value="{{ act.id }}">
+              <button type="submit" class="btn btn-danger btn-sm"
+                      onclick="return confirm('¿Eliminar esta actividad?')">✕</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+        <!-- Fila total -->
+        <tr class="row-total">
+          <td colspan="{{ 10 if puede_editar else 9 }}" style="text-align:right;padding-right:14px;font-size:.78rem">
+            {# vacía excepto la celda de costo #}
+          </td>
+        </tr>
+        <tr class="row-total">
+          <td colspan="5" style="text-align:right;padding-right:10px;font-size:.78rem;font-weight:700">Total costo</td>
+          <td class="pres">RD$ {{ "{:,.2f}".format(total_pres) }}</td>
+          <td colspan="{{ 5 if puede_editar else 4 }}"></td>
+        </tr>
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:48px 16px;color:var(--muted)">
+      <i class="fas fa-clipboard" style="font-size:2.2rem;display:block;margin-bottom:12px;opacity:.25"></i>
+      <p>No hay actividades todavía.{% if puede_editar %} Agrega la primera usando el formulario de abajo.{% endif %}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Formulario nueva actividad -->
+  {% if puede_editar %}
+  <p class="section-label">Agregar actividad</p>
+  <div class="form-card">
+    <div class="form-head">
+      <h3><i class="fas fa-plus-circle" style="color:var(--accent)"></i> Nueva actividad</h3>
+    </div>
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="accion"     value="agregar_actividad">
+      <div class="form-body">
+        <div class="form-grid">
+
+          <!-- Fila 1: Actividad / Proyecto (full) -->
+          <div class="f col-full">
+            <label>Actividad / Proyecto <span style="color:var(--danger)">*</span></label>
+            <input type="text" name="actividad"
+                   placeholder="Nombre de la actividad o proyecto…" required>
+          </div>
+
+          <!-- Fila 2: Acciones principales (full) -->
+          <div class="f col-full">
+            <label>Acciones principales</label>
+            <textarea name="acciones"
+                      placeholder="Acciones específicas a realizar para llevar a cabo esta actividad…"></textarea>
+          </div>
+
+          <!-- Fila 3: ¿Qué necesitamos? (full) -->
+          <div class="f col-full">
+            <label>¿Qué necesitamos?</label>
+            <input type="text" name="recursos"
+                   placeholder="Recursos o materiales necesarios…">
+          </div>
+
+          <!-- Fila 4: Cantidad | Costo estimado | ¿Cuándo? -->
+          <div class="f">
+            <label>Cantidad</label>
+            <input type="text" name="cantidad"
+                   placeholder="Ej: 5 resmas, 2 proyectores…">
+          </div>
+          <div class="f">
+            <label>Costo estimado (RD$)</label>
+            <input type="number" name="presupuesto" step="0.01" min="0"
+                   placeholder="0.00" value="0">
+          </div>
+          <div class="f">
+            <label>¿Cuándo?</label>
+            <input type="text" name="cuando"
+                   placeholder="Ej: Enero-Marzo, T1-T2…">
+          </div>
+
+          <!-- Fila 5: Evidencia / Producto (full) -->
+          <div class="f col-full">
+            <label>Evidencia / Producto</label>
+            <input type="text" name="evidencia"
+                   placeholder="¿Qué queda como evidencia del cumplimiento? Actas, fotos, informes…">
+          </div>
+
+          <!-- Fila 6: Responsable(s) (full) -->
+          <div class="f col-full">
+            <label>Responsable(s) <span style="color:var(--danger)">*</span></label>
+            <input type="text" name="responsable"
+                   placeholder="Nombre(s) del/los responsable(s)" required>
+          </div>
+
+        </div>
+      </div>
+      <div class="form-foot">
+        <button type="reset" class="btn btn-ghost">Limpiar</button>
+        <button type="submit" class="btn btn-primary">
+          <i class="fas fa-plus"></i> Agregar actividad
+        </button>
+      </div>
+    </form>
+  </div>
+
+  {% else %}
+  <div class="info-box">
+    {% if poa.estado == 'enviado' %}
+    <i class="fas fa-info-circle"></i>
+    Este POA fue enviado para revisión y no puede editarse.
+    {% if es_admin %} Puedes aprobarlo o devolverlo a borrador desde los botones de arriba.{% endif %}
+    {% elif poa.estado == 'aprobado' %}
+    <i class="fas fa-check-circle" style="color:#2E9E68"></i>
+    Este POA fue aprobado. Contacta a coordinación si necesitas hacer cambios.
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+</body>
+</html>

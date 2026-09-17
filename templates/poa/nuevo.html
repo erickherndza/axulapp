@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nuevo POA — Axula</title>
+<link rel="stylesheet" href="/static/theme.css">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh}
+.top{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;
+     background:var(--surface);border-bottom:1px solid var(--border)}
+.top h1{font-family:var(--font-display);font-size:1.2rem;font-weight:800}
+.top .r{display:flex;gap:12px;align-items:center;font-size:.85rem;color:var(--muted)}
+.top a{color:var(--accent);text-decoration:none;font-weight:600;font-size:.85rem}
+.c{max-width:600px;margin:0 auto;padding:36px 24px}
+
+/* Encabezado institucional */
+.inst-header{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+             padding:18px 22px;margin-bottom:18px;text-align:center}
+.inst-header .vmpde{font-size:.72rem;font-weight:700;color:var(--muted);
+                    text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px}
+.inst-header .centro{font-size:1rem;font-weight:800;color:var(--text);margin-bottom:2px}
+.inst-header .sub{font-size:.8rem;color:var(--muted)}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.card-head{padding:18px 22px;border-bottom:1px solid var(--border)}
+.card-head h2{font-size:.95rem;font-weight:700;margin-bottom:3px}
+.card-head p{font-size:.8rem;color:var(--muted)}
+.card-body{padding:22px;display:flex;flex-direction:column;gap:16px}
+.card-foot{padding:12px 22px;border-top:1px solid var(--border);
+           display:flex;justify-content:flex-end;gap:10px;background:var(--surface2)}
+
+/* Filas del encabezado Excel (2 cols) */
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+
+.f{display:flex;flex-direction:column;gap:5px}
+.f label{font-size:.72rem;font-weight:700;color:var(--muted);
+         text-transform:uppercase;letter-spacing:.05em}
+.f input,.f select,.f textarea{padding:9px 12px;border-radius:8px;border:1px solid var(--border);
+                   background:var(--surface2);color:var(--text);
+                   font-size:.875rem;font-family:var(--font-body);width:100%}
+.f input:focus,.f select:focus,.f textarea:focus{outline:none;border-color:var(--accent)}
+.f textarea{resize:vertical;min-height:60px}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;
+     border:none;font-weight:600;cursor:pointer;font-size:.84rem;text-decoration:none;
+     transition:opacity .15s}
+.btn:hover{opacity:.88}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.flash{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:.85rem}
+.flash.error{background:rgba(224,72,72,.12);color:#F8A0A0;border-left:3px solid var(--danger)}
+.flash.success{background:rgba(3,140,140,.1);color:var(--accent);border-left:3px solid var(--accent)}
+
+.section-divider{font-size:.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+                 letter-spacing:.08em;padding:4px 0;border-bottom:1px solid var(--border);
+                 margin-bottom:2px}
+</style>
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<div class="top">
+  <h1><i class="fas fa-clipboard-list" style="color:var(--accent);margin-right:8px"></i>Plan Operativo Anual</h1>
+  <div class="r">
+    <a href="/poa"><i class="fas fa-arrow-left"></i> Mis POAs</a>
+    <a href="/profesor"><i class="fas fa-chalkboard-teacher"></i> Portal</a>
+  </div>
+</div>
+
+<div class="c">
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <!-- Encabezado institucional (replica plantilla Excel) -->
+  <div class="inst-header">
+    <div class="vmpde">Viceministerio de Planificación y Desarrollo Educativo</div>
+    <div class="centro">Centro Educativo en Artes Benito Juárez</div>
+    <div class="sub">Plan Operativo Anual — nuevo</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Nuevo Plan Operativo Anual</h2>
+      <p>Completa el encabezado del POA. Luego agregarás las actividades.</p>
+    </div>
+
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="card-body">
+
+        <!-- Fila 3 Excel: Área/Equipo · Mención/Dpto · Fecha (año escolar) -->
+        <div class="section-divider">Identificación</div>
+        <div class="row3">
+          <div class="f">
+            <label for="asignatura">Área / Equipo <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="asignatura" name="asignatura"
+                   value="{{ materia_prof }}"
+                   placeholder="Ej. Diseño Web, Fotografía…"
+                   required autofocus>
+          </div>
+          <div class="f">
+            <label for="area">Mención / Departamento</label>
+            <input type="text" id="area" name="area"
+                   placeholder="Ej. MULTIMEDIA, Lengua…">
+          </div>
+          <div class="f">
+            <label for="anio_escolar">Año Escolar</label>
+            <input type="text" id="anio_escolar" name="anio_escolar"
+                   value="{{ anio }}" required>
+          </div>
+        </div>
+
+        <div class="f">
+          <label for="trimestre">Período</label>
+          <select id="trimestre" name="trimestre">
+            <option value="">— Anual —</option>
+            <option value="1">T1 — Primer trimestre</option>
+            <option value="2">T2 — Segundo trimestre</option>
+            <option value="3">T3 — Tercer trimestre</option>
+          </select>
+        </div>
+
+        <!-- Fila 4 Excel: Integrantes -->
+        <div class="section-divider">Integrantes del equipo</div>
+        <div class="f">
+          <label for="integrantes">Integrantes Iniciales</label>
+          <textarea id="integrantes" name="integrantes"
+                    placeholder="Ej: María García, Juan Pérez, Ana Rodríguez…"></textarea>
+        </div>
+
+        <!-- Fila 5 Excel: Responsable de la mesa -->
+        <div class="f">
+          <label for="responsable_mesa">Responsable de la mesa</label>
+          <input type="text" id="responsable_mesa" name="responsable_mesa"
+                 placeholder="Nombre del/la responsable de la mesa">
+        </div>
+
+        <!-- Objetivo general (campo libre del encabezado) -->
+        <div class="section-divider">Objetivo general</div>
+        <div class="f">
+          <label for="objetivo_general">Objetivo General del POA <span style="font-weight:400;text-transform:none">(opcional)</span></label>
+          <textarea id="objetivo_general" name="objetivo_general"
+                    placeholder="Describe el objetivo general que orienta este POA…"></textarea>
+        </div>
+
+      </div>
+      <div class="card-foot">
+        <a href="/poa" class="btn btn-ghost">Cancelar</a>
+        <button type="submit" class="btn btn-primary">
+          Crear POA <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+</body>
+</html>
